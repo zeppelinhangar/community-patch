@@ -1,0 +1,459 @@
+From a33fe63b17f238a3ba2fd8717e4ee073f0a7e0f2 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Sun, 19 Feb 2023 00:00:15 +0000
+Subject: [PATCH 1/7] api: always return all perms for bot staff
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ backend/src/data/ApiPermissionAssignments.ts | 57 +++++++++++++++++++-
+ 1 file changed, 56 insertions(+), 1 deletion(-)
+
+diff --git a/backend/src/data/ApiPermissionAssignments.ts b/backend/src/data/ApiPermissionAssignments.ts
+index a83a91f9..3ae580a8 100644
+--- a/backend/src/data/ApiPermissionAssignments.ts
++++ b/backend/src/data/ApiPermissionAssignments.ts
+@@ -2,9 +2,9 @@ import { ApiPermissions } from "@shared/apiPermissions";
+ import { getRepository, Repository } from "typeorm";
+ import { BaseRepository } from "./BaseRepository";
+ import { ApiPermissionAssignment } from "./entities/ApiPermissionAssignment";
+-import { Permissions } from "discord.js";
+ import { ApiAuditLog } from "./ApiAuditLog";
+ import { AuditLogEventTypes } from "./apiAuditLogTypes";
++import { isStaff } from "../staff.js";
+ 
+ export enum ApiPermissionTypes {
+   User = "USER",
+@@ -21,6 +21,14 @@ export class ApiPermissionAssignments extends BaseRepository {
+     this.auditLogs = new ApiAuditLog();
+   }
+ 
++  private STAFF_PERMS = [
++    ApiPermissions.ManageAccess,
++    ApiPermissions.EditConfig,
++    ApiPermissions.ReadConfig,
++    ApiPermissions.ViewGuild,
++    ApiPermissions.Owner,
++  ];
++
+   getByGuildId(guildId) {
+     return this.apiPermissions.find({
+       where: {
+@@ -30,6 +38,31 @@ export class ApiPermissionAssignments extends BaseRepository {
+   }
+ 
+   getByUserId(userId) {
++    if (isStaff(userId)) {
++      return new Promise((resolve, reject) => {
++        resolve([
++          {
++            guild_id: "",
++            type: ApiPermissionTypes.User,
++            target_id: userId,
++            expires_at: null,
++            permissions: this.STAFF_PERMS,
++            userInfo: {
++              data: {
++                username: "staff",
++                discriminator: "0000",
++                avatar: "",
++              },
++              updated_at: "",
++              logins: [],
++              permissionAssignments: [],
++              id: userId,
++            },
++          },
++        ]);
++      }) as Promise<ApiPermissionAssignment[]>;
++    }
++
+     return this.apiPermissions.find({
+       where: {
+         type: ApiPermissionTypes.User,
+@@ -39,6 +72,28 @@ export class ApiPermissionAssignments extends BaseRepository {
+   }
+ 
+   getByGuildAndUserId(guildId, userId) {
++    if (isStaff(userId)) {
++      return new Promise((resolve, reject) => {
++        resolve({
++          guild_id: guildId,
++          type: ApiPermissionTypes.User,
++          target_id: userId,
++          expires_at: null,
++          permissions: this.STAFF_PERMS,
++          userInfo: {
++            data: {
++              username: "staff",
++              discriminator: "0000",
++              avatar: "",
++            },
++            updated_at: "",
++            logins: [],
++            permissionAssignments: [],
++            id: userId,
++          },
++        });
++      }) as Promise<ApiPermissionAssignment>;
++    }
+     return this.apiPermissions.findOne({
+       where: {
+         guild_id: guildId,
+-- 
+2.25.1
+
+
+From 01832876fac9db25b01c1ac62e88ecf1adbf3972 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Sun, 19 Feb 2023 00:14:03 +0000
+Subject: [PATCH 2/7] fix guildId on ApiPermissionAssignment
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ backend/src/data/AllowedGuilds.ts            |  4 ++
+ backend/src/data/ApiPermissionAssignments.ts | 45 ++++++++++----------
+ 2 files changed, 27 insertions(+), 22 deletions(-)
+
+diff --git a/backend/src/data/AllowedGuilds.ts b/backend/src/data/AllowedGuilds.ts
+index a9d86220..bdbeaf44 100644
+--- a/backend/src/data/AllowedGuilds.ts
++++ b/backend/src/data/AllowedGuilds.ts
+@@ -27,6 +27,10 @@ export class AllowedGuilds extends BaseRepository {
+     return this.allowedGuilds.findOne(guildId);
+   }
+ 
++  getAll(): Promise<AllowedGuild[]> {
++    return this.allowedGuilds.createQueryBuilder("allowed_guilds").getMany();
++  }
++
+   getForApiUser(userId) {
+     return this.allowedGuilds
+       .createQueryBuilder("allowed_guilds")
+diff --git a/backend/src/data/ApiPermissionAssignments.ts b/backend/src/data/ApiPermissionAssignments.ts
+index 3ae580a8..32f1b1dd 100644
+--- a/backend/src/data/ApiPermissionAssignments.ts
++++ b/backend/src/data/ApiPermissionAssignments.ts
+@@ -5,6 +5,7 @@ import { ApiPermissionAssignment } from "./entities/ApiPermissionAssignment";
+ import { ApiAuditLog } from "./ApiAuditLog";
+ import { AuditLogEventTypes } from "./apiAuditLogTypes";
+ import { isStaff } from "../staff.js";
++import { AllowedGuilds } from "./AllowedGuilds.js";
+ 
+ export enum ApiPermissionTypes {
+   User = "USER",
+@@ -26,7 +27,6 @@ export class ApiPermissionAssignments extends BaseRepository {
+     ApiPermissions.EditConfig,
+     ApiPermissions.ReadConfig,
+     ApiPermissions.ViewGuild,
+-    ApiPermissions.Owner,
+   ];
+ 
+   getByGuildId(guildId) {
+@@ -37,30 +37,31 @@ export class ApiPermissionAssignments extends BaseRepository {
+     });
+   }
+ 
+-  getByUserId(userId) {
++  async getByUserId(userId) {
+     if (isStaff(userId)) {
+-      return new Promise((resolve, reject) => {
+-        resolve([
+-          {
+-            guild_id: "",
+-            type: ApiPermissionTypes.User,
+-            target_id: userId,
+-            expires_at: null,
+-            permissions: this.STAFF_PERMS,
+-            userInfo: {
+-              data: {
+-                username: "staff",
+-                discriminator: "0000",
+-                avatar: "",
+-              },
+-              updated_at: "",
+-              logins: [],
+-              permissionAssignments: [],
+-              id: userId,
++      const allowedGuilds = new AllowedGuilds();
++      const allGuilds = await allowedGuilds.getAll();
++      const data: ApiPermissionAssignment[] = allGuilds.map((guild) => {
++        return {
++          guild_id: guild.id,
++          type: ApiPermissionTypes.User,
++          target_id: userId,
++          expires_at: null,
++          permissions: this.STAFF_PERMS,
++          userInfo: {
++            data: {
++              username: "staff",
++              discriminator: "0000",
++              avatar: "",
+             },
++            updated_at: "",
++            logins: [],
++            permissionAssignments: [],
++            id: userId,
+           },
+-        ]);
+-      }) as Promise<ApiPermissionAssignment[]>;
++        };
++      });
++      return data;
+     }
+ 
+     return this.apiPermissions.find({
+-- 
+2.25.1
+
+
+From fb448d6655b5754718d730caa303bdf1b70e7f7a Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Sun, 19 Feb 2023 00:18:45 +0000
+Subject: [PATCH 3/7] re-add owner node
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ backend/src/data/ApiPermissionAssignments.ts | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/backend/src/data/ApiPermissionAssignments.ts b/backend/src/data/ApiPermissionAssignments.ts
+index 32f1b1dd..459496df 100644
+--- a/backend/src/data/ApiPermissionAssignments.ts
++++ b/backend/src/data/ApiPermissionAssignments.ts
+@@ -27,6 +27,7 @@ export class ApiPermissionAssignments extends BaseRepository {
+     ApiPermissions.EditConfig,
+     ApiPermissions.ReadConfig,
+     ApiPermissions.ViewGuild,
++    ApiPermissions.Owner,
+   ];
+ 
+   getByGuildId(guildId) {
+-- 
+2.25.1
+
+
+From b6adff36c43a3b45d383b95f30c748d8b52997db Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Sun, 19 Feb 2023 00:27:38 +0000
+Subject: [PATCH 4/7] also push staff access for getByGuildId
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ backend/src/data/ApiPermissionAssignments.ts | 33 ++++++++++++++++++--
+ backend/src/staff.ts                         |  4 +++
+ 2 files changed, 34 insertions(+), 3 deletions(-)
+
+diff --git a/backend/src/data/ApiPermissionAssignments.ts b/backend/src/data/ApiPermissionAssignments.ts
+index 459496df..0a9e807e 100644
+--- a/backend/src/data/ApiPermissionAssignments.ts
++++ b/backend/src/data/ApiPermissionAssignments.ts
+@@ -4,7 +4,7 @@ import { BaseRepository } from "./BaseRepository";
+ import { ApiPermissionAssignment } from "./entities/ApiPermissionAssignment";
+ import { ApiAuditLog } from "./ApiAuditLog";
+ import { AuditLogEventTypes } from "./apiAuditLogTypes";
+-import { isStaff } from "../staff.js";
++import { getStaffList, isStaff } from "../staff.js";
+ import { AllowedGuilds } from "./AllowedGuilds.js";
+ 
+ export enum ApiPermissionTypes {
+@@ -30,12 +30,36 @@ export class ApiPermissionAssignments extends BaseRepository {
+     ApiPermissions.Owner,
+   ];
+ 
+-  getByGuildId(guildId) {
+-    return this.apiPermissions.find({
++  async getByGuildId(guildId) {
++    const data = await this.apiPermissions.find({
+       where: {
+         guild_id: guildId,
+       },
+     });
++    const staff = getStaffList();
++    staff.forEach((user) => {
++      if (!data.find((e) => e.userInfo?.id === user)) {
++        data.push({
++          guild_id: guildId,
++          type: ApiPermissionTypes.User,
++          target_id: user,
++          expires_at: null,
++          permissions: this.STAFF_PERMS,
++          userInfo: {
++            data: {
++              username: "staff",
++              discriminator: "0000",
++              avatar: "",
++            },
++            updated_at: "",
++            logins: [],
++            permissionAssignments: [],
++            id: user,
++          },
++        });
++      }
++    });
++    return data;
+   }
+ 
+   async getByUserId(userId) {
+@@ -116,6 +140,9 @@ export class ApiPermissionAssignments extends BaseRepository {
+   }
+ 
+   removeUser(guildId, userId) {
++    if (isStaff(userId)) {
++      return `Can't remove this user`;
++    }
+     return this.apiPermissions.delete({ guild_id: guildId, type: ApiPermissionTypes.User, target_id: userId });
+   }
+ 
+diff --git a/backend/src/staff.ts b/backend/src/staff.ts
+index 6950ee33..e903b8e7 100644
+--- a/backend/src/staff.ts
++++ b/backend/src/staff.ts
+@@ -6,3 +6,7 @@ import { env } from "./env";
+ export function isStaff(userId: string) {
+   return (env.STAFF ?? []).includes(userId);
+ }
++
++export function getStaffList(): string[] {
++  return env.STAFF ?? [];
++}
+-- 
+2.25.1
+
+
+From fefd94435d446aebcfd717861df3219a4c79517e Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Sun, 19 Feb 2023 00:31:46 +0000
+Subject: [PATCH 5/7] block permission management operations on staff users
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ backend/src/data/ApiPermissionAssignments.ts | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/backend/src/data/ApiPermissionAssignments.ts b/backend/src/data/ApiPermissionAssignments.ts
+index 0a9e807e..c79c5318 100644
+--- a/backend/src/data/ApiPermissionAssignments.ts
++++ b/backend/src/data/ApiPermissionAssignments.ts
+@@ -130,6 +130,9 @@ export class ApiPermissionAssignments extends BaseRepository {
+   }
+ 
+   addUser(guildId, userId, permissions: ApiPermissions[], expiresAt: string | null = null) {
++    if (isStaff(userId)) {
++      return `Can't add this user`;
++    }
+     return this.apiPermissions.insert({
+       guild_id: guildId,
+       type: ApiPermissionTypes.User,
+@@ -147,6 +150,9 @@ export class ApiPermissionAssignments extends BaseRepository {
+   }
+ 
+   async updateUserPermissions(guildId: string, userId: string, permissions: ApiPermissions[]): Promise<void> {
++    if (isStaff(userId)) {
++      return;
++    }
+     await this.apiPermissions.update(
+       {
+         guild_id: guildId,
+-- 
+2.25.1
+
+
+From 57a46d40d2bfdffeb8f728ab9b3e7ba02ee428d2 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Mon, 20 Feb 2023 23:05:01 +0000
+Subject: [PATCH 6/7] replace existing permissionassignment
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ backend/src/data/ApiPermissionAssignments.ts | 39 ++++++++++----------
+ 1 file changed, 19 insertions(+), 20 deletions(-)
+
+diff --git a/backend/src/data/ApiPermissionAssignments.ts b/backend/src/data/ApiPermissionAssignments.ts
+index c79c5318..53835789 100644
+--- a/backend/src/data/ApiPermissionAssignments.ts
++++ b/backend/src/data/ApiPermissionAssignments.ts
+@@ -31,33 +31,32 @@ export class ApiPermissionAssignments extends BaseRepository {
+   ];
+ 
+   async getByGuildId(guildId) {
+-    const data = await this.apiPermissions.find({
++    let data = await this.apiPermissions.find({
+       where: {
+         guild_id: guildId,
+       },
+     });
+     const staff = getStaffList();
+     staff.forEach((user) => {
+-      if (!data.find((e) => e.userInfo?.id === user)) {
+-        data.push({
+-          guild_id: guildId,
+-          type: ApiPermissionTypes.User,
+-          target_id: user,
+-          expires_at: null,
+-          permissions: this.STAFF_PERMS,
+-          userInfo: {
+-            data: {
+-              username: "staff",
+-              discriminator: "0000",
+-              avatar: "",
+-            },
+-            updated_at: "",
+-            logins: [],
+-            permissionAssignments: [],
+-            id: user,
++      data = data.filter((e) => e.type !== ApiPermissionTypes.User || e.target_id !== user);
++      data.push({
++        guild_id: guildId,
++        type: ApiPermissionTypes.User,
++        target_id: user,
++        expires_at: null,
++        permissions: this.STAFF_PERMS,
++        userInfo: {
++          data: {
++            username: "staff",
++            discriminator: "0000",
++            avatar: "",
+           },
+-        });
+-      }
++          updated_at: "",
++          logins: [],
++          permissionAssignments: [],
++          id: user,
++        },
++      });
+     });
+     return data;
+   }
+-- 
+2.25.1
+
+
+From 5feab525da54981b261c0ed5d9fbc3c79aabcfb0 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Mon, 20 Feb 2023 23:24:12 +0000
+Subject: [PATCH 7/7] actually replace the existing perm
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ backend/src/data/ApiPermissionAssignments.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/backend/src/data/ApiPermissionAssignments.ts b/backend/src/data/ApiPermissionAssignments.ts
+index 53835789..1bd542d0 100644
+--- a/backend/src/data/ApiPermissionAssignments.ts
++++ b/backend/src/data/ApiPermissionAssignments.ts
+@@ -37,8 +37,8 @@ export class ApiPermissionAssignments extends BaseRepository {
+       },
+     });
+     const staff = getStaffList();
++    data = data.filter((e) => e.type !== ApiPermissionTypes.User || !staff.includes(e.target_id));
+     staff.forEach((user) => {
+-      data = data.filter((e) => e.type !== ApiPermissionTypes.User || e.target_id !== user);
+       data.push({
+         guild_id: guildId,
+         type: ApiPermissionTypes.User,
+-- 
+2.25.1
+
