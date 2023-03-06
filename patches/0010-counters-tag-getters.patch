@@ -1,0 +1,1333 @@
+From 9214b658828b13801df811d86f221bc6b445304b Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Thu, 23 Sep 2021 16:21:11 +0000
+Subject: [PATCH 01/19] initial
+
+---
+ backend/src/data/GuildCounters.ts             | 12 +++++
+ .../src/plugins/Counters/CountersPlugin.ts    |  5 ++
+ .../Counters/functions/getCounterValue.ts     | 49 +++++++++++++++++++
+ .../src/plugins/Tags/util/renderTagBody.ts    | 13 +++++
+ backend/src/templateFormatter.ts              | 17 +++++++
+ 5 files changed, 96 insertions(+)
+ create mode 100644 backend/src/plugins/Counters/functions/getCounterValue.ts
+
+diff --git a/backend/src/data/GuildCounters.ts b/backend/src/data/GuildCounters.ts
+index 52f20293..af0f9572 100644
+--- a/backend/src/data/GuildCounters.ts
++++ b/backend/src/data/GuildCounters.ts
+@@ -501,6 +501,18 @@ export class GuildCounters extends BaseGuildRepository {
+     return value?.value;
+   }
+ 
++  async getAllValues(counterId: number, channelId: string | null, userId: string | null): Promise<CounterValue[]> {
++    const values = await this.counterValues.find({
++      where: {
++        counter_id: counterId,
++        channel_id: channelId || "0",
++        user_id: userId || "0",
++      },
++    });
++
++    return values;
++  }
++
+   async resetAllCounterValues(counterId: number): Promise<void> {
+     // Foreign keys will remove any related triggers and counter values
+     await this.counters.delete({
+diff --git a/backend/src/plugins/Counters/CountersPlugin.ts b/backend/src/plugins/Counters/CountersPlugin.ts
+index 6d4bf708..2ecd69ec 100644
+--- a/backend/src/plugins/Counters/CountersPlugin.ts
++++ b/backend/src/plugins/Counters/CountersPlugin.ts
+@@ -21,6 +21,7 @@ import { ViewCounterCmd } from "./commands/ViewCounterCmd";
+ import { changeCounterValue } from "./functions/changeCounterValue";
+ import { counterExists } from "./functions/counterExists";
+ import { decayCounter } from "./functions/decayCounter";
++import { getAllCounterValues, getCounterValue } from "./functions/getCounterValue";
+ import { getPrettyNameForCounter } from "./functions/getPrettyNameForCounter";
+ import { getPrettyNameForCounterTrigger } from "./functions/getPrettyNameForCounterTrigger";
+ import { offCounterEvent } from "./functions/offCounterEvent";
+@@ -125,6 +126,10 @@ export const CountersPlugin = zeppelinGuildPlugin<CountersPluginType>()({
+     // Change a counter's value by a relative amount, e.g. +5
+     changeCounterValue: mapToPublicFn(changeCounterValue),
+ 
++    // Gets a counter's value
++    getCounterValue: mapToPublicFn(getCounterValue),
++    getAllCounterValues: mapToPublicFn(getAllCounterValues),
++
+     // Set a counter's value to an absolute value
+     setCounterValue: mapToPublicFn(setCounterValue),
+ 
+diff --git a/backend/src/plugins/Counters/functions/getCounterValue.ts b/backend/src/plugins/Counters/functions/getCounterValue.ts
+new file mode 100644
+index 00000000..83f5e328
+--- /dev/null
++++ b/backend/src/plugins/Counters/functions/getCounterValue.ts
+@@ -0,0 +1,49 @@
++import { GuildPluginData } from "knub";
++import { CounterValue } from "../../../data/entities/CounterValue";
++import { CountersPluginType } from "../types";
++
++export async function getCounterValue(
++  pluginData: GuildPluginData<CountersPluginType>,
++  counterName: string,
++  channelId: string | null,
++  userId: string | null,
++): Promise<number | undefined> {
++  const config = pluginData.config.get();
++  const counter = config.counters[counterName];
++  if (!counter) {
++    throw new Error(`Unknown counter: ${counterName}`);
++  }
++
++  if (counter.per_channel && !channelId) {
++    throw new Error(`Counter is per channel but no channel ID was supplied`);
++  }
++
++  if (counter.per_user && !userId) {
++    throw new Error(`Counter is per user but no user ID was supplied`);
++  }
++
++  const counterId = pluginData.state.counterIds[counterName];
++
++  const vl = await pluginData.state.counters.getCurrentValue(counterId, channelId, userId);
++
++  return vl;
++}
++
++export async function getAllCounterValues(
++  pluginData: GuildPluginData<CountersPluginType>,
++  counterName: string,
++  channelId: string | null,
++  userId: string | null,
++): Promise<CounterValue[] | undefined> {
++  const config = pluginData.config.get();
++  const counter = config.counters[counterName];
++  if (!counter) {
++    throw new Error(`Unknown counter: ${counterName}`);
++  }
++
++  const counterId = pluginData.state.counterIds[counterName];
++
++  const vl = await pluginData.state.counters.getAllValues(counterId, channelId, userId);
++
++  return vl;
++}
+diff --git a/backend/src/plugins/Tags/util/renderTagBody.ts b/backend/src/plugins/Tags/util/renderTagBody.ts
+index 5174e7b1..e35c914d 100644
+--- a/backend/src/plugins/Tags/util/renderTagBody.ts
++++ b/backend/src/plugins/Tags/util/renderTagBody.ts
+@@ -1,7 +1,9 @@
+ import { GuildPluginData } from "knub";
+ import { ExtendedMatchParams } from "knub/dist/config/PluginConfigManager";
++import { CounterValue } from "../../../data/entities/CounterValue";
+ import { renderTemplate, TemplateSafeValue, TemplateSafeValueContainer } from "../../../templateFormatter";
+ import { renderRecursively, StrictMessageContent } from "../../../utils";
++import { CountersPlugin } from "../../Counters/CountersPlugin";
+ import { TagsPluginType, TTag } from "../types";
+ import { findTagByName } from "./findTagByName";
+ 
+@@ -17,6 +19,8 @@ export async function renderTagBody(
+ ): Promise<StrictMessageContent> {
+   const dynamicVars = {};
+ 
++  const countersPlugin = pluginData.getPlugin(CountersPlugin);
++
+   const data = new TemplateSafeValueContainer({
+     args,
+     ...extraData,
+@@ -33,6 +37,15 @@ export async function renderTagBody(
+     get(name) {
+       return dynamicVars[name] == null ? "" : dynamicVars[name];
+     },
++    async get_counter_value(counter, userId?, channelId?) {
++      if (!userId || !channelId) return "";
++      const cData = await countersPlugin.getCounterValue(counter, userId, channelId);
++      return cData?.toString() ?? "";
++    },
++    async get_all_counter_values(counter?, userId?, channelId?): Promise<CounterValue[] | undefined> {
++      const cData = await countersPlugin.getAllCounterValues(counter, userId, channelId);
++      return cData?.sort((a, b) => a.value - b.value) ?? [];
++    },
+     tag: async (name, ...subTagArgs) => {
+       if (++tagFnCallsObj.calls > MAX_TAG_FN_CALLS) return "";
+       if (typeof name !== "string") return "";
+diff --git a/backend/src/templateFormatter.ts b/backend/src/templateFormatter.ts
+index 0dcb7bde..86919614 100644
+--- a/backend/src/templateFormatter.ts
++++ b/backend/src/templateFormatter.ts
+@@ -451,6 +451,23 @@ const baseValues = {
+     const mod = Math.floor(Math.random() * cases.length) + 1;
+     return baseValues.cases(mod, ...cases);
+   },
++  lb_map(arr, keys, sep = "-") {
++    if (!Array.isArray(arr) || !Array.isArray(keys) || arr.length === 0 || keys.length === 0) return "";
++    return arr
++      .map((item) => {
++        const str: any[] = [];
++        for (const key in keys) {
++          if (!item.hasOwnProperty(keys)) continue;
++          str.push(item[key]);
++        }
++        return str.join(` ${sep} `);
++      })
++      .join("");
++  },
++  f_ind(arr, key) {
++    if (!Array.isArray(arr) || arr.length === 0 || !key) return "";
++    return arr.findIndex((obj) => obj === key) ?? "";
++  },
+ };
+ 
+ export async function renderTemplate(
+-- 
+2.25.1
+
+
+From 7c4ed443b9caa2638706edb102baea31a2577ffc Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Thu, 23 Sep 2021 17:00:57 +0000
+Subject: [PATCH 02/19] fix
+
+---
+ backend/src/data/GuildCounters.ts              | 4 ++--
+ backend/src/plugins/Tags/util/renderTagBody.ts | 7 ++++---
+ 2 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/backend/src/data/GuildCounters.ts b/backend/src/data/GuildCounters.ts
+index af0f9572..8c0c657b 100644
+--- a/backend/src/data/GuildCounters.ts
++++ b/backend/src/data/GuildCounters.ts
+@@ -505,8 +505,8 @@ export class GuildCounters extends BaseGuildRepository {
+     const values = await this.counterValues.find({
+       where: {
+         counter_id: counterId,
+-        channel_id: channelId || "0",
+-        user_id: userId || "0",
++        channel_id: channelId ? channelId : undefined,
++        user_id: userId ? userId : undefined
+       },
+     });
+ 
+diff --git a/backend/src/plugins/Tags/util/renderTagBody.ts b/backend/src/plugins/Tags/util/renderTagBody.ts
+index e35c914d..3e4a653c 100644
+--- a/backend/src/plugins/Tags/util/renderTagBody.ts
++++ b/backend/src/plugins/Tags/util/renderTagBody.ts
+@@ -38,12 +38,13 @@ export async function renderTagBody(
+       return dynamicVars[name] == null ? "" : dynamicVars[name];
+     },
+     async get_counter_value(counter, userId?, channelId?) {
+-      if (!userId || !channelId) return "";
+-      const cData = await countersPlugin.getCounterValue(counter, userId, channelId);
++      if (!userId && !channelId) return "";
++      const cData = await countersPlugin.getCounterValue(counter, channelId, userId);
+       return cData?.toString() ?? "";
+     },
+     async get_all_counter_values(counter?, userId?, channelId?): Promise<CounterValue[] | undefined> {
+-      const cData = await countersPlugin.getAllCounterValues(counter, userId, channelId);
++      const cData = await countersPlugin.getAllCounterValues(counter, channelId, userId);
++      console.log("cData", cData);
+       return cData?.sort((a, b) => a.value - b.value) ?? [];
+     },
+     tag: async (name, ...subTagArgs) => {
+-- 
+2.25.1
+
+
+From cc285e82ff8e7aa992476ea211b5c74f4f5c0116 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Thu, 23 Sep 2021 19:00:37 +0000
+Subject: [PATCH 03/19] more fixes
+
+---
+ backend/src/data/GuildCounters.ts             | 15 ++++-------
+ .../Counters/functions/getCounterValue.ts     |  4 +--
+ .../src/plugins/Tags/util/renderTagBody.ts    | 10 ++++---
+ backend/src/templateFormatter.ts              | 26 +++++++++++++------
+ backend/src/utils/templateSafeObjects.ts      | 23 ++++++++++++++++
+ 5 files changed, 53 insertions(+), 25 deletions(-)
+
+diff --git a/backend/src/data/GuildCounters.ts b/backend/src/data/GuildCounters.ts
+index 8c0c657b..bd8733bb 100644
+--- a/backend/src/data/GuildCounters.ts
++++ b/backend/src/data/GuildCounters.ts
+@@ -501,16 +501,11 @@ export class GuildCounters extends BaseGuildRepository {
+     return value?.value;
+   }
+ 
+-  async getAllValues(counterId: number, channelId: string | null, userId: string | null): Promise<CounterValue[]> {
+-    const values = await this.counterValues.find({
+-      where: {
+-        counter_id: counterId,
+-        channel_id: channelId ? channelId : undefined,
+-        user_id: userId ? userId : undefined
+-      },
+-    });
+-
+-    return values;
++  async getAllValues(counterId: number): Promise<CounterValue[]> {
++    return this.counterValues
++      .createQueryBuilder("counter_values")
++      .where("counter_id = :counter_id", { counter_id: counterId })
++      .getMany();
+   }
+ 
+   async resetAllCounterValues(counterId: number): Promise<void> {
+diff --git a/backend/src/plugins/Counters/functions/getCounterValue.ts b/backend/src/plugins/Counters/functions/getCounterValue.ts
+index 83f5e328..2d004c82 100644
+--- a/backend/src/plugins/Counters/functions/getCounterValue.ts
++++ b/backend/src/plugins/Counters/functions/getCounterValue.ts
+@@ -32,8 +32,6 @@ export async function getCounterValue(
+ export async function getAllCounterValues(
+   pluginData: GuildPluginData<CountersPluginType>,
+   counterName: string,
+-  channelId: string | null,
+-  userId: string | null,
+ ): Promise<CounterValue[] | undefined> {
+   const config = pluginData.config.get();
+   const counter = config.counters[counterName];
+@@ -43,7 +41,7 @@ export async function getAllCounterValues(
+ 
+   const counterId = pluginData.state.counterIds[counterName];
+ 
+-  const vl = await pluginData.state.counters.getAllValues(counterId, channelId, userId);
++  const vl = await pluginData.state.counters.getAllValues(counterId);
+ 
+   return vl;
+ }
+diff --git a/backend/src/plugins/Tags/util/renderTagBody.ts b/backend/src/plugins/Tags/util/renderTagBody.ts
+index 3e4a653c..58523af8 100644
+--- a/backend/src/plugins/Tags/util/renderTagBody.ts
++++ b/backend/src/plugins/Tags/util/renderTagBody.ts
+@@ -6,6 +6,7 @@ import { renderRecursively, StrictMessageContent } from "../../../utils";
+ import { CountersPlugin } from "../../Counters/CountersPlugin";
+ import { TagsPluginType, TTag } from "../types";
+ import { findTagByName } from "./findTagByName";
++import { counterValueToTemplateSafeCounterValue, TemplateSafeCounterValue } from "../../../utils/templateSafeObjects";
+ 
+ const MAX_TAG_FN_CALLS = 25;
+ 
+@@ -42,10 +43,11 @@ export async function renderTagBody(
+       const cData = await countersPlugin.getCounterValue(counter, channelId, userId);
+       return cData?.toString() ?? "";
+     },
+-    async get_all_counter_values(counter?, userId?, channelId?): Promise<CounterValue[] | undefined> {
+-      const cData = await countersPlugin.getAllCounterValues(counter, channelId, userId);
+-      console.log("cData", cData);
+-      return cData?.sort((a, b) => a.value - b.value) ?? [];
++    async get_all_counter_values(counter): Promise<TemplateSafeCounterValue[] | undefined> {
++      const cData = (await countersPlugin.getAllCounterValues(counter))?.map((cd) =>
++        counterValueToTemplateSafeCounterValue(cd),
++      );
++      return cData?.sort((a, b) => b.value - a.value) ?? [];
+     },
+     tag: async (name, ...subTagArgs) => {
+       if (++tagFnCallsObj.calls > MAX_TAG_FN_CALLS) return "";
+diff --git a/backend/src/templateFormatter.ts b/backend/src/templateFormatter.ts
+index 86919614..2b0dbaf6 100644
+--- a/backend/src/templateFormatter.ts
++++ b/backend/src/templateFormatter.ts
+@@ -392,6 +392,10 @@ const baseValues = {
+     if (typeof arg !== "string") return 0;
+     return [...arg].length;
+   },
++  arrlen(arg) {
++    if (!Array.isArray(arg)) return 0;
++    return arg.length;
++  },
+   rand(from, to, seed = null) {
+     if (isNaN(from)) return 0;
+ 
+@@ -451,22 +455,28 @@ const baseValues = {
+     const mod = Math.floor(Math.random() * cases.length) + 1;
+     return baseValues.cases(mod, ...cases);
+   },
+-  lb_map(arr, keys, sep = "-") {
++  map(obj, key) {
++    if (Array.isArray(obj)) {
++      return obj.map((tobj) => tobj[key]);
++    }
++    return obj[key];
++  },
++  lb_map(arr, sep = "-", ...keys) {
+     if (!Array.isArray(arr) || !Array.isArray(keys) || arr.length === 0 || keys.length === 0) return "";
+     return arr
+       .map((item) => {
+         const str: any[] = [];
+-        for (const key in keys) {
+-          if (!item.hasOwnProperty(keys)) continue;
+-          str.push(item[key]);
+-        }
++        keys.forEach((key) => {
++          if (item[key]) str.push(item[key]);
++        });
+         return str.join(` ${sep} `);
+       })
+-      .join("");
++      .join("\n");
+   },
+-  f_ind(arr, key) {
++  find_i(arr, key) {
+     if (!Array.isArray(arr) || arr.length === 0 || !key) return "";
+-    return arr.findIndex((obj) => obj === key) ?? "";
++    const _index = arr.findIndex((obj) => obj === key);
++    return _index !== -1 ? _index : "";
+   },
+ };
+ 
+diff --git a/backend/src/utils/templateSafeObjects.ts b/backend/src/utils/templateSafeObjects.ts
+index d57e1fca..41540513 100644
+--- a/backend/src/utils/templateSafeObjects.ts
++++ b/backend/src/utils/templateSafeObjects.ts
+@@ -23,6 +23,7 @@ import {
+   SavedMessage,
+ } from "../data/entities/SavedMessage";
+ import { Case } from "../data/entities/Case";
++import { CounterValue } from "../data/entities/CounterValue";
+ 
+ type InputProps<T> = Omit<
+   {
+@@ -200,6 +201,18 @@ export class TemplateSafeCase extends TemplateSafeValueContainer {
+   }
+ }
+ 
++export class TemplateSafeCounterValue extends TemplateSafeValueContainer {
++  id: number;
++  counter_id: string;
++  user_id: string;
++  channel_id: string;
++  value: number;
++
++  constructor(data: InputProps<TemplateSafeCounterValue>) {
++    super(data);
++  }
++}
++
+ export class TemplateSafeMessage extends TemplateSafeValueContainer {
+   id: string;
+   content: string;
+@@ -443,6 +456,16 @@ export function caseToTemplateSafeCase(theCase: Case): TemplateSafeCase {
+   });
+ }
+ 
++export function counterValueToTemplateSafeCounterValue(theCounterValue: CounterValue): TemplateSafeCounterValue {
++  return new TemplateSafeCounterValue({
++    id: theCounterValue.id,
++    counter_id: theCounterValue.counter_id,
++    channel_id: theCounterValue.channel_id,
++    user_id: theCounterValue.user_id,
++    value: theCounterValue.value,
++  });
++}
++
+ export function messageToTemplateSafeMessage(message: Message): TemplateSafeMessage {
+   return new TemplateSafeMessage({
+     id: message.id,
+-- 
+2.25.1
+
+
+From 73864f8f70c03249a819a7121cf723d234ef63b0 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Thu, 23 Sep 2021 19:39:39 +0000
+Subject: [PATCH 04/19] Merge branch 'tags-counters-getters'
+
+---
+ backend/src/templateFormatter.ts | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/backend/src/templateFormatter.ts b/backend/src/templateFormatter.ts
+index 2b0dbaf6..d1646dd8 100644
+--- a/backend/src/templateFormatter.ts
++++ b/backend/src/templateFormatter.ts
+@@ -478,6 +478,10 @@ const baseValues = {
+     const _index = arr.findIndex((obj) => obj === key);
+     return _index !== -1 ? _index : "";
+   },
++  get_snowflake(str) {
++    if (!str || typeof str !== "string") return "";
++    return str.replaceAll(/[^\d]+/g, "");
++  },
+ };
+ 
+ export async function renderTemplate(
+-- 
+2.25.1
+
+
+From 8f288a4232463a51069b7aead205fa81e68fe599 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Thu, 23 Sep 2021 20:25:37 +0000
+Subject: [PATCH 05/19] add math.pow
+
+---
+ backend/src/templateFormatter.ts | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/backend/src/templateFormatter.ts b/backend/src/templateFormatter.ts
+index d1646dd8..fb3d2e01 100644
+--- a/backend/src/templateFormatter.ts
++++ b/backend/src/templateFormatter.ts
+@@ -445,6 +445,10 @@ const baseValues = {
+       return result / parseFloat(arg);
+     }, args[0]);
+   },
++  exp(arg1, arg2) {
++    if (isNaN(arg1) || isNaN(arg2)) return 0;
++    return Math.pow(arg1, arg2);
++  },
+   cases(mod, ...cases) {
+     if (cases.length === 0) return "";
+     if (isNaN(mod)) return "";
+-- 
+2.25.1
+
+
+From a22bba4f5d6d6a50e437612425f5da88c7ae1276 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Thu, 23 Sep 2021 22:10:22 +0000
+Subject: [PATCH 06/19] parseFloat exp
+
+---
+ backend/src/templateFormatter.ts | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/backend/src/templateFormatter.ts b/backend/src/templateFormatter.ts
+index fb3d2e01..6caa7cef 100644
+--- a/backend/src/templateFormatter.ts
++++ b/backend/src/templateFormatter.ts
+@@ -445,9 +445,9 @@ const baseValues = {
+       return result / parseFloat(arg);
+     }, args[0]);
+   },
+-  exp(arg1, arg2) {
+-    if (isNaN(arg1) || isNaN(arg2)) return 0;
+-    return Math.pow(arg1, arg2);
++  exp(base, power) {
++    if (isNaN(base) || isNaN(power)) return 0;
++    return Math.pow(parseFloat(base), parseFloat(power));
+   },
+   cases(mod, ...cases) {
+     if (cases.length === 0) return "";
+-- 
+2.25.1
+
+
+From 1917b5013c3fef5cb170ee5ea3ad80e6ba27c735 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Thu, 23 Sep 2021 23:04:09 +0000
+Subject: [PATCH 07/19] ceil/floor
+
+---
+ backend/src/templateFormatter.ts | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/backend/src/templateFormatter.ts b/backend/src/templateFormatter.ts
+index 6caa7cef..da70b4c3 100644
+--- a/backend/src/templateFormatter.ts
++++ b/backend/src/templateFormatter.ts
+@@ -418,6 +418,14 @@ const baseValues = {
+     if (isNaN(arg)) return 0;
+     return decimals === 0 ? Math.round(arg) : arg.toFixed(decimals);
+   },
++  floor(arg) {
++    if (isNaN(arg)) return 0;
++    return Math.floor(arg);
++  },
++  ceil(arg) {
++    if (isNaN(arg)) return 0;
++    return Math.ceil(arg);
++  },
+   add(...args) {
+     return args.reduce((result, arg) => {
+       if (isNaN(arg)) return result;
+-- 
+2.25.1
+
+
+From c98e028f935f7bcf4ab62080bc03df90199a4143 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Fri, 24 Sep 2021 18:11:09 +0000
+Subject: [PATCH 08/19] check counters & add get_user
+
+---
+ .../src/plugins/Tags/util/renderTagBody.ts    | 27 +++++++++++++++----
+ 1 file changed, 22 insertions(+), 5 deletions(-)
+
+diff --git a/backend/src/plugins/Tags/util/renderTagBody.ts b/backend/src/plugins/Tags/util/renderTagBody.ts
+index 58523af8..00f8fb37 100644
+--- a/backend/src/plugins/Tags/util/renderTagBody.ts
++++ b/backend/src/plugins/Tags/util/renderTagBody.ts
+@@ -2,11 +2,15 @@ import { GuildPluginData } from "knub";
+ import { ExtendedMatchParams } from "knub/dist/config/PluginConfigManager";
+ import { CounterValue } from "../../../data/entities/CounterValue";
+ import { renderTemplate, TemplateSafeValue, TemplateSafeValueContainer } from "../../../templateFormatter";
+-import { renderRecursively, StrictMessageContent } from "../../../utils";
++import { renderRecursively, resolveUser, StrictMessageContent, UnknownUser } from "../../../utils";
+ import { CountersPlugin } from "../../Counters/CountersPlugin";
+ import { TagsPluginType, TTag } from "../types";
+ import { findTagByName } from "./findTagByName";
+-import { counterValueToTemplateSafeCounterValue, TemplateSafeCounterValue } from "../../../utils/templateSafeObjects";
++import {
++  counterValueToTemplateSafeCounterValue,
++  TemplateSafeCounterValue,
++  userToTemplateSafeUser,
++} from "../../../utils/templateSafeObjects";
+ 
+ const MAX_TAG_FN_CALLS = 25;
+ 
+@@ -19,8 +23,13 @@ export async function renderTagBody(
+   tagFnCallsObj = { calls: 0 },
+ ): Promise<StrictMessageContent> {
+   const dynamicVars = {};
+-
+-  const countersPlugin = pluginData.getPlugin(CountersPlugin);
++  const client = pluginData.client;
++  let countersPlugin: any;
++  try {
++    countersPlugin = pluginData.getPlugin(CountersPlugin);
++  } catch (_) {
++    // no counters plugin
++  }
+ 
+   const data = new TemplateSafeValueContainer({
+     args,
+@@ -39,16 +48,24 @@ export async function renderTagBody(
+       return dynamicVars[name] == null ? "" : dynamicVars[name];
+     },
+     async get_counter_value(counter, userId?, channelId?) {
++      if (!countersPlugin) return "";
+       if (!userId && !channelId) return "";
+       const cData = await countersPlugin.getCounterValue(counter, channelId, userId);
+       return cData?.toString() ?? "";
+     },
+-    async get_all_counter_values(counter): Promise<TemplateSafeCounterValue[] | undefined> {
++    async get_all_counter_values(counter) {
++      if (!countersPlugin) return "";
+       const cData = (await countersPlugin.getAllCounterValues(counter))?.map((cd) =>
+         counterValueToTemplateSafeCounterValue(cd),
+       );
+       return cData?.sort((a, b) => b.value - a.value) ?? [];
+     },
++    async get_user(str) {
++      if (!str || typeof str !== "string") return "";
++      const resolved = await resolveUser(client, str);
++      if (resolved instanceof UnknownUser) return null;
++      return userToTemplateSafeUser(resolved);
++    },
+     tag: async (name, ...subTagArgs) => {
+       if (++tagFnCallsObj.calls > MAX_TAG_FN_CALLS) return "";
+       if (typeof name !== "string") return "";
+-- 
+2.25.1
+
+
+From 24aa1581a66b5c8bc7590b290f7ed1bfde4da8e8 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Fri, 24 Sep 2021 19:17:52 +0000
+Subject: [PATCH 09/19] return string
+
+---
+ backend/src/plugins/Tags/util/renderTagBody.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/backend/src/plugins/Tags/util/renderTagBody.ts b/backend/src/plugins/Tags/util/renderTagBody.ts
+index 00f8fb37..6e8c6089 100644
+--- a/backend/src/plugins/Tags/util/renderTagBody.ts
++++ b/backend/src/plugins/Tags/util/renderTagBody.ts
+@@ -63,7 +63,7 @@ export async function renderTagBody(
+     async get_user(str) {
+       if (!str || typeof str !== "string") return "";
+       const resolved = await resolveUser(client, str);
+-      if (resolved instanceof UnknownUser) return null;
++      if (resolved instanceof UnknownUser) return "";
+       return userToTemplateSafeUser(resolved);
+     },
+     tag: async (name, ...subTagArgs) => {
+-- 
+2.25.1
+
+
+From e4a3352fcf5d009a2814440e9430a2c991e9bb7e Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Sat, 25 Sep 2021 20:36:21 +0000
+Subject: [PATCH 10/19] first attempt at RANK
+
+---
+ backend/src/data/GuildCounters.ts             | 17 +++++++++++++++
+ .../src/plugins/Counters/CountersPlugin.ts    |  3 ++-
+ .../Counters/functions/getCounterValue.ts     | 21 +++++++++++++++++++
+ .../src/plugins/Tags/util/renderTagBody.ts    | 13 +++++++-----
+ 4 files changed, 48 insertions(+), 6 deletions(-)
+
+diff --git a/backend/src/data/GuildCounters.ts b/backend/src/data/GuildCounters.ts
+index bd8733bb..c37b4539 100644
+--- a/backend/src/data/GuildCounters.ts
++++ b/backend/src/data/GuildCounters.ts
+@@ -508,6 +508,23 @@ export class GuildCounters extends BaseGuildRepository {
+       .getMany();
+   }
+ 
++  async getCounterRank(
++    counterId: number,
++    rankedField: string,
++    outputRankField: string,
++    limit?: number,
++    userId?: string,
++  ) {
++    return this.counterValues.query(`
++    SELECT 
++      *,
++      DENSE_RANK() OVER (ORDER BY ${rankedField} DESC) ${outputRankField}
++    WHERE counter_id=${counterId}${userId ? ` AND user_id='${userId}` : ""}${
++      limit && limit > 0 ? ` LIMIT ${limit}` : ""
++    };'};
++  `);
++  }
++
+   async resetAllCounterValues(counterId: number): Promise<void> {
+     // Foreign keys will remove any related triggers and counter values
+     await this.counters.delete({
+diff --git a/backend/src/plugins/Counters/CountersPlugin.ts b/backend/src/plugins/Counters/CountersPlugin.ts
+index 2ecd69ec..fa27d1fe 100644
+--- a/backend/src/plugins/Counters/CountersPlugin.ts
++++ b/backend/src/plugins/Counters/CountersPlugin.ts
+@@ -21,7 +21,7 @@ import { ViewCounterCmd } from "./commands/ViewCounterCmd";
+ import { changeCounterValue } from "./functions/changeCounterValue";
+ import { counterExists } from "./functions/counterExists";
+ import { decayCounter } from "./functions/decayCounter";
+-import { getAllCounterValues, getCounterValue } from "./functions/getCounterValue";
++import { getAllCounterValues, getCounterValue, getRankedCounterValues } from "./functions/getCounterValue";
+ import { getPrettyNameForCounter } from "./functions/getPrettyNameForCounter";
+ import { getPrettyNameForCounterTrigger } from "./functions/getPrettyNameForCounterTrigger";
+ import { offCounterEvent } from "./functions/offCounterEvent";
+@@ -129,6 +129,7 @@ export const CountersPlugin = zeppelinGuildPlugin<CountersPluginType>()({
+     // Gets a counter's value
+     getCounterValue: mapToPublicFn(getCounterValue),
+     getAllCounterValues: mapToPublicFn(getAllCounterValues),
++    getRankedCounterValues: mapToPublicFn(getRankedCounterValues),
+ 
+     // Set a counter's value to an absolute value
+     setCounterValue: mapToPublicFn(setCounterValue),
+diff --git a/backend/src/plugins/Counters/functions/getCounterValue.ts b/backend/src/plugins/Counters/functions/getCounterValue.ts
+index 2d004c82..03e1e9eb 100644
+--- a/backend/src/plugins/Counters/functions/getCounterValue.ts
++++ b/backend/src/plugins/Counters/functions/getCounterValue.ts
+@@ -45,3 +45,24 @@ export async function getAllCounterValues(
+ 
+   return vl;
+ }
++
++export async function getRankedCounterValues(
++  pluginData: GuildPluginData<CountersPluginType>,
++  counterName: string,
++  rankedField: string,
++  outputRankField: string,
++  limit?: number,
++  userId?: string,
++): Promise<CounterValue[] | undefined> {
++  const config = pluginData.config.get();
++  const counter = config.counters[counterName];
++  if (!counter) {
++    throw new Error(`Unknown counter: ${counterName}`);
++  }
++
++  const counterId = pluginData.state.counterIds[counterName];
++
++  const vl = await pluginData.state.counters.getCounterRank(counterId, rankedField, outputRankField, limit, userId);
++
++  return vl;
++}
+diff --git a/backend/src/plugins/Tags/util/renderTagBody.ts b/backend/src/plugins/Tags/util/renderTagBody.ts
+index 6e8c6089..afe6a088 100644
+--- a/backend/src/plugins/Tags/util/renderTagBody.ts
++++ b/backend/src/plugins/Tags/util/renderTagBody.ts
+@@ -53,12 +53,15 @@ export async function renderTagBody(
+       const cData = await countersPlugin.getCounterValue(counter, channelId, userId);
+       return cData?.toString() ?? "";
+     },
+-    async get_all_counter_values(counter) {
++    async get_all_counter_values(counter, field?, output?, limit?, userId?) {
+       if (!countersPlugin) return "";
+-      const cData = (await countersPlugin.getAllCounterValues(counter))?.map((cd) =>
+-        counterValueToTemplateSafeCounterValue(cd),
+-      );
+-      return cData?.sort((a, b) => b.value - a.value) ?? [];
++
++      const cData = (
++        field && output
++          ? await countersPlugin.getRankedCounterValues(counter, field, output, limit, userId)
++          : await countersPlugin.getAllCounterValues(counter)
++      )?.map((cd) => counterValueToTemplateSafeCounterValue(cd));
++      return cData ?? [];
+     },
+     async get_user(str) {
+       if (!str || typeof str !== "string") return "";
+-- 
+2.25.1
+
+
+From 9f42a02de2dd78488a5812bf72cf39a318e0342c Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Sat, 25 Sep 2021 21:24:46 +0000
+Subject: [PATCH 11/19] aaaaaa
+
+---
+ backend/src/data/GuildCounters.ts             | 18 +++++++-------
+ .../src/plugins/Tags/util/renderTagBody.ts    |  9 ++++---
+ backend/src/utils/escapeString.ts             | 24 +++++++++++++++++++
+ 3 files changed, 40 insertions(+), 11 deletions(-)
+ create mode 100644 backend/src/utils/escapeString.ts
+
+diff --git a/backend/src/data/GuildCounters.ts b/backend/src/data/GuildCounters.ts
+index c37b4539..51e4bbcd 100644
+--- a/backend/src/data/GuildCounters.ts
++++ b/backend/src/data/GuildCounters.ts
+@@ -1,4 +1,5 @@
+ import moment from "moment-timezone";
++import { sql_escape_string } from "src/utils/escapeString";
+ import { FindConditions, getRepository, In, IsNull, Not, Repository } from "typeorm";
+ import { Queue } from "../Queue";
+ import { DAYS, DBDateFormat, HOURS, MINUTES } from "../utils";
+@@ -515,14 +516,15 @@ export class GuildCounters extends BaseGuildRepository {
+     limit?: number,
+     userId?: string,
+   ) {
+-    return this.counterValues.query(`
+-    SELECT 
+-      *,
+-      DENSE_RANK() OVER (ORDER BY ${rankedField} DESC) ${outputRankField}
+-    WHERE counter_id=${counterId}${userId ? ` AND user_id='${userId}` : ""}${
+-      limit && limit > 0 ? ` LIMIT ${limit}` : ""
+-    };'};
+-  `);
++    return this.counterValues.query(`WITH t AS (
++        SELECT 
++          *,
++          DENSE_RANK() OVER (ORDER BY ${sql_escape_string(rankedField)} DESC) ${sql_escape_string(outputRankField)}
++        FROM counter_values
++        WHERE counter_id=${counterId}
++      )
++      SELECT * FROM t${userId ? ` WHERE user_id="${sql_escape_string(userId)}"` : ""}
++      ${limit && limit > 0 ? ` LIMIT ${limit}` : ""};`);
+   }
+ 
+   async resetAllCounterValues(counterId: number): Promise<void> {
+diff --git a/backend/src/plugins/Tags/util/renderTagBody.ts b/backend/src/plugins/Tags/util/renderTagBody.ts
+index afe6a088..d9446e05 100644
+--- a/backend/src/plugins/Tags/util/renderTagBody.ts
++++ b/backend/src/plugins/Tags/util/renderTagBody.ts
+@@ -11,6 +11,7 @@ import {
+   TemplateSafeCounterValue,
+   userToTemplateSafeUser,
+ } from "../../../utils/templateSafeObjects";
++import { isArray } from "util";
+ 
+ const MAX_TAG_FN_CALLS = 25;
+ 
+@@ -56,11 +57,13 @@ export async function renderTagBody(
+     async get_all_counter_values(counter, field?, output?, limit?, userId?) {
+       if (!countersPlugin) return "";
+ 
+-      const cData = (
+-        field && output
++      const cData = /*field && output
+           ? await countersPlugin.getRankedCounterValues(counter, field, output, limit, userId)
+           : await countersPlugin.getAllCounterValues(counter)
+-      )?.map((cd) => counterValueToTemplateSafeCounterValue(cd));
++      )?.map((cd) => counterValueToTemplateSafeCounterValue(cd));*/
++
++      (await countersPlugin.getAllCounterValues(counter))?.map((cd) => counterValueToTemplateSafeCounterValue(cd));
++      if (Array.isArray(cData) && cData.length === 1 && limit === 1) return cData[0];
+       return cData ?? [];
+     },
+     async get_user(str) {
+diff --git a/backend/src/utils/escapeString.ts b/backend/src/utils/escapeString.ts
+new file mode 100644
+index 00000000..b5c5be4e
+--- /dev/null
++++ b/backend/src/utils/escapeString.ts
+@@ -0,0 +1,24 @@
++export function sql_escape_string(str) {
++  return str.replace(/[\0\x08\x09\x1a\n\r"'\\\%]/g, function (char) {
++    switch (char) {
++      case "\0":
++        return "\\0";
++      case "\x08":
++        return "\\b";
++      case "\x09":
++        return "\\t";
++      case "\x1a":
++        return "\\z";
++      case "\n":
++        return "\\n";
++      case "\r":
++        return "\\r";
++      case '"':
++      case "'":
++      case "\\":
++      case "%":
++        return "\\" + char; // prepends a backslash to backslash, percent,
++      // and double/single quotes
++    }
++  });
++}
+-- 
+2.25.1
+
+
+From 4a9311f35721cc2d66ddacf949f3b1249f1bd5d3 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Mon, 11 Oct 2021 13:10:26 +0000
+Subject: [PATCH 12/19] test
+
+---
+ backend/src/data/GuildCounters.ts             | 19 ++++++++++---------
+ .../Counters/functions/getCounterValue.ts     |  6 +++++-
+ backend/src/plugins/Tags/types.ts             |  1 +
+ .../src/plugins/Tags/util/renderTagBody.ts    |  5 +++--
+ backend/src/utils/templateSafeObjects.ts      |  2 ++
+ 5 files changed, 21 insertions(+), 12 deletions(-)
+
+diff --git a/backend/src/data/GuildCounters.ts b/backend/src/data/GuildCounters.ts
+index 51e4bbcd..a8ca1f12 100644
+--- a/backend/src/data/GuildCounters.ts
++++ b/backend/src/data/GuildCounters.ts
+@@ -516,15 +516,16 @@ export class GuildCounters extends BaseGuildRepository {
+     limit?: number,
+     userId?: string,
+   ) {
+-    return this.counterValues.query(`WITH t AS (
+-        SELECT 
+-          *,
+-          DENSE_RANK() OVER (ORDER BY ${sql_escape_string(rankedField)} DESC) ${sql_escape_string(outputRankField)}
+-        FROM counter_values
+-        WHERE counter_id=${counterId}
+-      )
+-      SELECT * FROM t${userId ? ` WHERE user_id="${sql_escape_string(userId)}"` : ""}
+-      ${limit && limit > 0 ? ` LIMIT ${limit}` : ""};`);
++    const queryString = `WITH t AS (
++      SELECT 
++        *,
++        DENSE_RANK() OVER (ORDER BY ${sql_escape_string(rankedField)} DESC) ${sql_escape_string(outputRankField)}
++      FROM counter_values
++      WHERE counter_id=${counterId}
++    )
++    SELECT * FROM t${userId && userId.length > 10 ? ` WHERE user_id="${sql_escape_string(userId)}"` : ""}
++    ${limit && limit > 0 ? ` LIMIT ${limit}` : ""};`;
++    return this.counterValues.query(queryString);
+   }
+ 
+   async resetAllCounterValues(counterId: number): Promise<void> {
+diff --git a/backend/src/plugins/Counters/functions/getCounterValue.ts b/backend/src/plugins/Counters/functions/getCounterValue.ts
+index 03e1e9eb..a78d41c5 100644
+--- a/backend/src/plugins/Counters/functions/getCounterValue.ts
++++ b/backend/src/plugins/Counters/functions/getCounterValue.ts
+@@ -2,6 +2,10 @@ import { GuildPluginData } from "knub";
+ import { CounterValue } from "../../../data/entities/CounterValue";
+ import { CountersPluginType } from "../types";
+ 
++export interface RankedCounterValues extends CounterValue {
++  rank?: number;
++}
++
+ export async function getCounterValue(
+   pluginData: GuildPluginData<CountersPluginType>,
+   counterName: string,
+@@ -53,7 +57,7 @@ export async function getRankedCounterValues(
+   outputRankField: string,
+   limit?: number,
+   userId?: string,
+-): Promise<CounterValue[] | undefined> {
++): Promise<RankedCounterValues[] | undefined> {
+   const config = pluginData.config.get();
+   const counter = config.counters[counterName];
+   if (!counter) {
+diff --git a/backend/src/plugins/Tags/types.ts b/backend/src/plugins/Tags/types.ts
+index 7c0ce10c..82e3655c 100644
+--- a/backend/src/plugins/Tags/types.ts
++++ b/backend/src/plugins/Tags/types.ts
+@@ -1,5 +1,6 @@
+ import * as t from "io-ts";
+ import { BasePluginType, typedGuildCommand, typedGuildEventListener } from "knub";
++import { CounterValue } from "src/data/entities/CounterValue";
+ import { GuildArchives } from "../../data/GuildArchives";
+ import { GuildLogs } from "../../data/GuildLogs";
+ import { GuildSavedMessages } from "../../data/GuildSavedMessages";
+diff --git a/backend/src/plugins/Tags/util/renderTagBody.ts b/backend/src/plugins/Tags/util/renderTagBody.ts
+index d9446e05..76f1f69c 100644
+--- a/backend/src/plugins/Tags/util/renderTagBody.ts
++++ b/backend/src/plugins/Tags/util/renderTagBody.ts
+@@ -57,12 +57,13 @@ export async function renderTagBody(
+     async get_all_counter_values(counter, field?, output?, limit?, userId?) {
+       if (!countersPlugin) return "";
+ 
+-      const cData = /*field && output
++      const cData =
++        /*field && output
+           ? await countersPlugin.getRankedCounterValues(counter, field, output, limit, userId)
+           : await countersPlugin.getAllCounterValues(counter)
+       )?.map((cd) => counterValueToTemplateSafeCounterValue(cd));*/
+ 
+-      (await countersPlugin.getAllCounterValues(counter))?.map((cd) => counterValueToTemplateSafeCounterValue(cd));
++        (await countersPlugin.getAllCounterValues(counter))?.map((cd) => counterValueToTemplateSafeCounterValue(cd));
+       if (Array.isArray(cData) && cData.length === 1 && limit === 1) return cData[0];
+       return cData ?? [];
+     },
+diff --git a/backend/src/utils/templateSafeObjects.ts b/backend/src/utils/templateSafeObjects.ts
+index 41540513..1bb88160 100644
+--- a/backend/src/utils/templateSafeObjects.ts
++++ b/backend/src/utils/templateSafeObjects.ts
+@@ -24,6 +24,7 @@ import {
+ } from "../data/entities/SavedMessage";
+ import { Case } from "../data/entities/Case";
+ import { CounterValue } from "../data/entities/CounterValue";
++import { number } from "io-ts";
+ 
+ type InputProps<T> = Omit<
+   {
+@@ -207,6 +208,7 @@ export class TemplateSafeCounterValue extends TemplateSafeValueContainer {
+   user_id: string;
+   channel_id: string;
+   value: number;
++  rank?: number;
+ 
+   constructor(data: InputProps<TemplateSafeCounterValue>) {
+     super(data);
+-- 
+2.25.1
+
+
+From 6d8fb18308e157b9526ef9f06030884a92e2e9cd Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Mon, 11 Oct 2021 13:10:42 +0000
+Subject: [PATCH 13/19] debug
+
+---
+ backend/src/data/GuildCounters.ts | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/backend/src/data/GuildCounters.ts b/backend/src/data/GuildCounters.ts
+index a8ca1f12..481bb7d8 100644
+--- a/backend/src/data/GuildCounters.ts
++++ b/backend/src/data/GuildCounters.ts
+@@ -525,6 +525,7 @@ export class GuildCounters extends BaseGuildRepository {
+     )
+     SELECT * FROM t${userId && userId.length > 10 ? ` WHERE user_id="${sql_escape_string(userId)}"` : ""}
+     ${limit && limit > 0 ? ` LIMIT ${limit}` : ""};`;
++    console.log("queryString, ", queryString);
+     return this.counterValues.query(queryString);
+   }
+ 
+-- 
+2.25.1
+
+
+From 21a6a22cf29c578470e205f552ec949ed29a8746 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Mon, 11 Oct 2021 13:33:57 +0000
+Subject: [PATCH 14/19] conditional check
+
+---
+ backend/src/plugins/Tags/util/renderTagBody.ts | 9 ++++-----
+ 1 file changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/backend/src/plugins/Tags/util/renderTagBody.ts b/backend/src/plugins/Tags/util/renderTagBody.ts
+index 76f1f69c..0159faa6 100644
+--- a/backend/src/plugins/Tags/util/renderTagBody.ts
++++ b/backend/src/plugins/Tags/util/renderTagBody.ts
+@@ -55,15 +55,14 @@ export async function renderTagBody(
+       return cData?.toString() ?? "";
+     },
+     async get_all_counter_values(counter, field?, output?, limit?, userId?) {
+-      if (!countersPlugin) return "";
++      if (!countersPlugin || !countersPlugin.counterExists(counter)) return "";
+ 
+-      const cData =
+-        /*field && output
++      const cData = (
++        field
+           ? await countersPlugin.getRankedCounterValues(counter, field, output, limit, userId)
+           : await countersPlugin.getAllCounterValues(counter)
+-      )?.map((cd) => counterValueToTemplateSafeCounterValue(cd));*/
++      )?.map((cd) => counterValueToTemplateSafeCounterValue(cd));
+ 
+-        (await countersPlugin.getAllCounterValues(counter))?.map((cd) => counterValueToTemplateSafeCounterValue(cd));
+       if (Array.isArray(cData) && cData.length === 1 && limit === 1) return cData[0];
+       return cData ?? [];
+     },
+-- 
+2.25.1
+
+
+From 7c0b10a1bf69555091b2a1a36c647834a07a8cc4 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Mon, 11 Oct 2021 13:43:53 +0000
+Subject: [PATCH 15/19] transform int
+
+---
+ backend/src/data/GuildCounters.ts                         | 1 -
+ backend/src/plugins/Counters/functions/getCounterValue.ts | 4 ++--
+ backend/src/utils/templateSafeObjects.ts                  | 7 ++++++-
+ 3 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/backend/src/data/GuildCounters.ts b/backend/src/data/GuildCounters.ts
+index 481bb7d8..a8ca1f12 100644
+--- a/backend/src/data/GuildCounters.ts
++++ b/backend/src/data/GuildCounters.ts
+@@ -525,7 +525,6 @@ export class GuildCounters extends BaseGuildRepository {
+     )
+     SELECT * FROM t${userId && userId.length > 10 ? ` WHERE user_id="${sql_escape_string(userId)}"` : ""}
+     ${limit && limit > 0 ? ` LIMIT ${limit}` : ""};`;
+-    console.log("queryString, ", queryString);
+     return this.counterValues.query(queryString);
+   }
+ 
+diff --git a/backend/src/plugins/Counters/functions/getCounterValue.ts b/backend/src/plugins/Counters/functions/getCounterValue.ts
+index a78d41c5..17d2e52f 100644
+--- a/backend/src/plugins/Counters/functions/getCounterValue.ts
++++ b/backend/src/plugins/Counters/functions/getCounterValue.ts
+@@ -66,7 +66,7 @@ export async function getRankedCounterValues(
+ 
+   const counterId = pluginData.state.counterIds[counterName];
+ 
+-  const vl = await pluginData.state.counters.getCounterRank(counterId, rankedField, outputRankField, limit, userId);
+-
++  let vl = await pluginData.state.counters.getCounterRank(counterId, rankedField, outputRankField, limit, userId);
++  if (Array.isArray(vl)) vl = vl.map((v) => (v.rank &= parseInt(v.rank, 10)));
+   return vl;
+ }
+diff --git a/backend/src/utils/templateSafeObjects.ts b/backend/src/utils/templateSafeObjects.ts
+index 1bb88160..a1ce3b17 100644
+--- a/backend/src/utils/templateSafeObjects.ts
++++ b/backend/src/utils/templateSafeObjects.ts
+@@ -202,6 +202,10 @@ export class TemplateSafeCase extends TemplateSafeValueContainer {
+   }
+ }
+ 
++export class RankedCounterValue extends CounterValue {
++  rank?: number;
++}
++
+ export class TemplateSafeCounterValue extends TemplateSafeValueContainer {
+   id: number;
+   counter_id: string;
+@@ -458,13 +462,14 @@ export function caseToTemplateSafeCase(theCase: Case): TemplateSafeCase {
+   });
+ }
+ 
+-export function counterValueToTemplateSafeCounterValue(theCounterValue: CounterValue): TemplateSafeCounterValue {
++export function counterValueToTemplateSafeCounterValue(theCounterValue: RankedCounterValue): TemplateSafeCounterValue {
+   return new TemplateSafeCounterValue({
+     id: theCounterValue.id,
+     counter_id: theCounterValue.counter_id,
+     channel_id: theCounterValue.channel_id,
+     user_id: theCounterValue.user_id,
+     value: theCounterValue.value,
++    rank: theCounterValue.rank,
+   });
+ }
+ 
+-- 
+2.25.1
+
+
+From b2a223a5dd3ef38696f8f75ac789d39f8bba866c Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Mon, 11 Oct 2021 13:53:06 +0000
+Subject: [PATCH 16/19] feex
+
+---
+ backend/src/plugins/Counters/functions/getCounterValue.ts | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/backend/src/plugins/Counters/functions/getCounterValue.ts b/backend/src/plugins/Counters/functions/getCounterValue.ts
+index 17d2e52f..e181cbd4 100644
+--- a/backend/src/plugins/Counters/functions/getCounterValue.ts
++++ b/backend/src/plugins/Counters/functions/getCounterValue.ts
+@@ -67,6 +67,11 @@ export async function getRankedCounterValues(
+   const counterId = pluginData.state.counterIds[counterName];
+ 
+   let vl = await pluginData.state.counters.getCounterRank(counterId, rankedField, outputRankField, limit, userId);
+-  if (Array.isArray(vl)) vl = vl.map((v) => (v.rank &= parseInt(v.rank, 10)));
++  if (Array.isArray(vl)) {
++    vl = vl.map((v) => {
++      v.rank &= parseInt(v.rank, 10);
++      return v;
++    });
++  }
+   return vl;
+ }
+-- 
+2.25.1
+
+
+From 55d07a8d3c37c7ec699ac131ba3dc1887016b277 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Mon, 11 Oct 2021 14:03:50 +0000
+Subject: [PATCH 17/19] escapeString no arrow fn
+
+---
+ backend/src/utils/escapeString.ts | 45 ++++++++++++++++---------------
+ 1 file changed, 23 insertions(+), 22 deletions(-)
+
+diff --git a/backend/src/utils/escapeString.ts b/backend/src/utils/escapeString.ts
+index b5c5be4e..7dedb595 100644
+--- a/backend/src/utils/escapeString.ts
++++ b/backend/src/utils/escapeString.ts
+@@ -1,24 +1,25 @@
++function char_select(char) {
++  switch (char) {
++    case "\0":
++      return "\\0";
++    case "\x08":
++      return "\\b";
++    case "\x09":
++      return "\\t";
++    case "\x1a":
++      return "\\z";
++    case "\n":
++      return "\\n";
++    case "\r":
++      return "\\r";
++    case '"':
++    case "'":
++    case "\\":
++    case "%":
++      return "\\" + char; // prepends a backslash to backslash, percent,
++    // and double/single quotes
++  }
++}
+ export function sql_escape_string(str) {
+-  return str.replace(/[\0\x08\x09\x1a\n\r"'\\\%]/g, function (char) {
+-    switch (char) {
+-      case "\0":
+-        return "\\0";
+-      case "\x08":
+-        return "\\b";
+-      case "\x09":
+-        return "\\t";
+-      case "\x1a":
+-        return "\\z";
+-      case "\n":
+-        return "\\n";
+-      case "\r":
+-        return "\\r";
+-      case '"':
+-      case "'":
+-      case "\\":
+-      case "%":
+-        return "\\" + char; // prepends a backslash to backslash, percent,
+-      // and double/single quotes
+-    }
+-  });
++  return str.replace(/[\0\x08\x09\x1a\n\r"'\\\%]/g, char_select);
+ }
+-- 
+2.25.1
+
+
+From ad96e7d2eab36e0ef5be9ded08ed3d3791a2c9ef Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Mon, 11 Oct 2021 14:13:37 +0000
+Subject: [PATCH 18/19] remove outputField
+
+---
+ backend/src/data/GuildCounters.ts                      | 10 ++--------
+ .../src/plugins/Counters/functions/getCounterValue.ts  |  3 +--
+ backend/src/plugins/Tags/util/renderTagBody.ts         |  4 ++--
+ 3 files changed, 5 insertions(+), 12 deletions(-)
+
+diff --git a/backend/src/data/GuildCounters.ts b/backend/src/data/GuildCounters.ts
+index a8ca1f12..93e76d30 100644
+--- a/backend/src/data/GuildCounters.ts
++++ b/backend/src/data/GuildCounters.ts
+@@ -509,17 +509,11 @@ export class GuildCounters extends BaseGuildRepository {
+       .getMany();
+   }
+ 
+-  async getCounterRank(
+-    counterId: number,
+-    rankedField: string,
+-    outputRankField: string,
+-    limit?: number,
+-    userId?: string,
+-  ) {
++  async getCounterRank(counterId: number, rankedField: string, limit?: number, userId?: string) {
+     const queryString = `WITH t AS (
+       SELECT 
+         *,
+-        DENSE_RANK() OVER (ORDER BY ${sql_escape_string(rankedField)} DESC) ${sql_escape_string(outputRankField)}
++        DENSE_RANK() OVER (ORDER BY ${sql_escape_string(rankedField)} DESC) rank
+       FROM counter_values
+       WHERE counter_id=${counterId}
+     )
+diff --git a/backend/src/plugins/Counters/functions/getCounterValue.ts b/backend/src/plugins/Counters/functions/getCounterValue.ts
+index e181cbd4..a2e1c109 100644
+--- a/backend/src/plugins/Counters/functions/getCounterValue.ts
++++ b/backend/src/plugins/Counters/functions/getCounterValue.ts
+@@ -54,7 +54,6 @@ export async function getRankedCounterValues(
+   pluginData: GuildPluginData<CountersPluginType>,
+   counterName: string,
+   rankedField: string,
+-  outputRankField: string,
+   limit?: number,
+   userId?: string,
+ ): Promise<RankedCounterValues[] | undefined> {
+@@ -66,7 +65,7 @@ export async function getRankedCounterValues(
+ 
+   const counterId = pluginData.state.counterIds[counterName];
+ 
+-  let vl = await pluginData.state.counters.getCounterRank(counterId, rankedField, outputRankField, limit, userId);
++  let vl = await pluginData.state.counters.getCounterRank(counterId, rankedField, limit, userId);
+   if (Array.isArray(vl)) {
+     vl = vl.map((v) => {
+       v.rank &= parseInt(v.rank, 10);
+diff --git a/backend/src/plugins/Tags/util/renderTagBody.ts b/backend/src/plugins/Tags/util/renderTagBody.ts
+index 0159faa6..b127e8c1 100644
+--- a/backend/src/plugins/Tags/util/renderTagBody.ts
++++ b/backend/src/plugins/Tags/util/renderTagBody.ts
+@@ -54,12 +54,12 @@ export async function renderTagBody(
+       const cData = await countersPlugin.getCounterValue(counter, channelId, userId);
+       return cData?.toString() ?? "";
+     },
+-    async get_all_counter_values(counter, field?, output?, limit?, userId?) {
++    async get_all_counter_values(counter, field?, limit?, userId?) {
+       if (!countersPlugin || !countersPlugin.counterExists(counter)) return "";
+ 
+       const cData = (
+         field
+-          ? await countersPlugin.getRankedCounterValues(counter, field, output, limit, userId)
++          ? await countersPlugin.getRankedCounterValues(counter, field, limit, userId)
+           : await countersPlugin.getAllCounterValues(counter)
+       )?.map((cd) => counterValueToTemplateSafeCounterValue(cd));
+ 
+-- 
+2.25.1
+
+
+From 8cb6b94bd364ed2bf0f3a4b575954a414bee88b3 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Mon, 6 Mar 2023 22:35:30 +0000
+Subject: [PATCH 19/19] cases template fn modify
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ backend/src/templateFormatter.ts | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/backend/src/templateFormatter.ts b/backend/src/templateFormatter.ts
+index da70b4c3..073b0279 100644
+--- a/backend/src/templateFormatter.ts
++++ b/backend/src/templateFormatter.ts
+@@ -461,6 +461,7 @@ const baseValues = {
+     if (cases.length === 0) return "";
+     if (isNaN(mod)) return "";
+     mod = parseInt(mod, 10) - 1;
++    if (cases.length === 1 && Array.isArray(cases[0])) return cases[0][Math.max(0, mod % cases[0].length)];
+     return cases[Math.max(0, mod % cases.length)];
+   },
+   choose(...cases) {
+-- 
+2.25.1
+
