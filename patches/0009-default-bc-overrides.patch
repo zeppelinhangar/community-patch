@@ -1,0 +1,46 @@
+From d0baa6de0bd14cc70388755aceaf88880cef34da Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Mon, 6 Mar 2023 21:21:57 +0000
+Subject: [PATCH] test auto-override STAFF for global commands
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ .../src/plugins/BotControl/BotControlPlugin.ts    | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/backend/src/plugins/BotControl/BotControlPlugin.ts b/backend/src/plugins/BotControl/BotControlPlugin.ts
+index 7897d837..cdec5899 100644
+--- a/backend/src/plugins/BotControl/BotControlPlugin.ts
++++ b/backend/src/plugins/BotControl/BotControlPlugin.ts
+@@ -23,6 +23,7 @@ import { AddServerFromInviteCmd } from "./commands/AddServerFromInviteCmd";
+ import { ChannelToServerCmd } from "./commands/ChannelToServerCmd";
+ import { RestPerformanceCmd } from "./commands/RestPerformanceCmd";
+ import { RateLimitPerformanceCmd } from "./commands/RateLimitPerformanceCmd";
++import { env } from "../../env";
+ 
+ const defaultOptions = {
+   config: {
+@@ -33,6 +34,20 @@ const defaultOptions = {
+     can_list_dashboard_perms: false,
+     update_cmd: null,
+   },
++  overrides: [
++    {
++      any: env.STAFF!.map((e) => {
++        return { user: e };
++      }),
++      config: {
++        can_use: true,
++        can_eligible: true,
++        can_performance: true,
++        can_add_server_from_invite: true,
++        can_list_dashboard_perms: true,
++      },
++    },
++  ],
+ };
+ 
+ export const BotControlPlugin = zeppelinGlobalPlugin<BotControlPluginType>()({
+-- 
+2.25.1
+
