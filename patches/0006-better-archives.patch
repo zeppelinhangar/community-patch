@@ -1,7 +1,7 @@
-From 239e639865f53c2d3ad6e1c226320f481f630e91 Mon Sep 17 00:00:00 2001
+From 1606d7cc8aa776f1fcfdaa6e066fb2b935316de5 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Mon, 20 Feb 2023 21:18:18 +0000
-Subject: [PATCH 1/4] initial
+Subject: [PATCH 1/7] initial
 
 Signed-off-by: GitHub <noreply@github.com>
 ---
@@ -52,10 +52,10 @@ index 00000000..f4f8cfe7
 2.25.1
 
 
-From f6157051af387df5ae7d92c80009d498fda69eb6 Mon Sep 17 00:00:00 2001
+From ee49f4997f5024fe30e7622f3bc7b91e4a13492e Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Sun, 19 Feb 2023 11:14:43 +0000
-Subject: [PATCH 2/4] higher clean limits
+Subject: [PATCH 2/7] higher clean limits
 
 Signed-off-by: GitHub <noreply@github.com>
 ---
@@ -81,10 +81,10 @@ index 6abbb481..6bbd8519 100644
 2.25.1
 
 
-From 8d7dbd649ae93edc1cdf37dd24b4467abbe9d65c Mon Sep 17 00:00:00 2001
+From de99950480c3035de96833271b189848b273cdd1 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Sat, 18 Feb 2023 23:19:07 +0000
-Subject: [PATCH 3/4] better archives stuff
+Subject: [PATCH 3/7] better archives stuff
 
 Signed-off-by: GitHub <noreply@github.com>
 ---
@@ -392,10 +392,10 @@ index 15f6e925..c41959de 100644
 2.25.1
 
 
-From c893a100f33a10ae8a73e70ec543ffe185a25c5e Mon Sep 17 00:00:00 2001
+From e58f796595b7ce76c346ab7d8bed8ef4af6c9397 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Sun, 19 Feb 2023 00:43:20 +0000
-Subject: [PATCH 4/4] add more case types to not auto-archive
+Subject: [PATCH 4/7] add more case types to not auto-archive
 
 Signed-off-by: GitHub <noreply@github.com>
 ---
@@ -421,6 +421,682 @@ index c8cea257..a020c09d 100644
    const user = await resolveUser(pluginData.client, args.userId);
    const userName = user.tag;
  
+-- 
+2.25.1
+
+
+From 3f4dd8ba4e6a8a4c0041f0ba38d4652c937d3597 Mon Sep 17 00:00:00 2001
+From: Lily Wonhalf <lilywonhalf@gmail.com>
+Date: Mon, 25 Jul 2022 21:13:11 +0200
+Subject: [PATCH 5/7] Made archives prettier
+
+---
+ backend/src/api/archives.ts                   |   9 +
+ backend/src/pluginUtils.ts                    |   5 +
+ .../plugins/Utility/commands/ArchiveCmd.ts    |   4 +-
+ .../src/plugins/Utility/commands/CleanCmd.ts  |   4 +-
+ backend/src/types.ts                          |   1 +
+ dashboard/src/components/Archive.vue          | 105 ++++++++
+ dashboard/src/routes.ts                       |   6 +
+ dashboard/src/store/archives.ts               |  60 +++++
+ dashboard/src/store/index.ts                  |   2 +
+ dashboard/src/store/types.ts                  |  10 +
+ dashboard/src/style/archives.pcss             | 250 ++++++++++++++++++
+ 11 files changed, 452 insertions(+), 4 deletions(-)
+ create mode 100644 dashboard/src/components/Archive.vue
+ create mode 100644 dashboard/src/store/archives.ts
+ create mode 100644 dashboard/src/style/archives.pcss
+
+diff --git a/backend/src/api/archives.ts b/backend/src/api/archives.ts
+index 3c1ae702..68f38aed 100644
+--- a/backend/src/api/archives.ts
++++ b/backend/src/api/archives.ts
+@@ -11,6 +11,15 @@ export function initArchives(app: express.Express) {
+     res.redirect("/archives/" + req.params.id);
+   });
+ 
++  app.get("/archives/:id.json", async (req: Request, res: Response) => {
++    const archive = await archives.find(req.params.id);
++    if (!archive) return notFound(res);
++
++    res.setHeader("Content-Type", "application/json; charset=UTF-8");
++    res.setHeader("X-Content-Type-Options", "nosniff");
++    res.json(archive);
++  });
++
+   app.get("/archives/:id", async (req: Request, res: Response) => {
+     const archive = await archives.find(req.params.id);
+     if (!archive) return notFound(res);
+diff --git a/backend/src/pluginUtils.ts b/backend/src/pluginUtils.ts
+index 17cd7631..307b1de9 100644
+--- a/backend/src/pluginUtils.ts
++++ b/backend/src/pluginUtils.ts
+@@ -233,6 +233,11 @@ export function getBaseUrl(pluginData: AnyPluginData<any>) {
+   return knub.getGlobalConfig().url;
+ }
+ 
++export function getDashboardUrl(pluginData: AnyPluginData<any>) {
++  const knub = pluginData.getKnubInstance() as TZeppelinKnub;
++  return knub.getGlobalConfig().dashboard_url;
++}
++
+ export function isOwner(pluginData: AnyPluginData<any>, userId: string) {
+   const knub = pluginData.getKnubInstance() as TZeppelinKnub;
+   const owners = knub.getGlobalConfig()?.owners;
+diff --git a/backend/src/plugins/Utility/commands/ArchiveCmd.ts b/backend/src/plugins/Utility/commands/ArchiveCmd.ts
+index b77f708b..b8629a97 100644
+--- a/backend/src/plugins/Utility/commands/ArchiveCmd.ts
++++ b/backend/src/plugins/Utility/commands/ArchiveCmd.ts
+@@ -1,7 +1,7 @@
+ import { GuildPluginData } from "knub";
+ import { commandTypeHelpers as ct } from "../../../commandTypes";
+ import { SavedMessage } from "../../../data/entities/SavedMessage";
+-import { getBaseUrl, sendErrorMessage, sendSuccessMessage } from "../../../pluginUtils";
++import { getDashboardUrl, sendErrorMessage, sendSuccessMessage } from "../../../pluginUtils";
+ import { utilityCmd, UtilityPluginType } from "../types";
+ 
+ const DEFAULT_COUNT = 50;
+@@ -13,7 +13,7 @@ export async function archiveMessages(
+ ) {
+   messagesToArchive = Array.from(messagesToArchive).sort((a, b) => (a.posted_at > b.posted_at ? 1 : -1));
+   const archiveId = await pluginData.state.archives.createFromSavedMessages(messagesToArchive, pluginData.guild);
+-  const baseUrl = getBaseUrl(pluginData);
++  const baseUrl = getDashboardUrl(pluginData);
+ 
+   return pluginData.state.archives.getUrl(baseUrl, archiveId);
+ }
+diff --git a/backend/src/plugins/Utility/commands/CleanCmd.ts b/backend/src/plugins/Utility/commands/CleanCmd.ts
+index 6bbd8519..0bb77069 100644
+--- a/backend/src/plugins/Utility/commands/CleanCmd.ts
++++ b/backend/src/plugins/Utility/commands/CleanCmd.ts
+@@ -4,7 +4,7 @@ import { commandTypeHelpers as ct } from "../../../commandTypes";
+ import { SavedMessage } from "../../../data/entities/SavedMessage";
+ import { LogType } from "../../../data/LogType";
+ import { ModActionsPlugin } from "../../../plugins/ModActions/ModActionsPlugin";
+-import { getBaseUrl, sendErrorMessage, sendSuccessMessage } from "../../../pluginUtils";
++import { getDashboardUrl, sendErrorMessage, sendSuccessMessage } from "../../../pluginUtils";
+ import { allowTimeout } from "../../../RegExpRunner";
+ import { DAYS, getInviteCodesInString, noop, SECONDS } from "../../../utils";
+ import { utilityCmd, UtilityPluginType } from "../types";
+@@ -39,7 +39,7 @@ export async function cleanMessages(
+ 
+   // Create an archive
+   const archiveId = await pluginData.state.archives.createFromSavedMessages(savedMessages, pluginData.guild);
+-  const baseUrl = getBaseUrl(pluginData);
++  const baseUrl = getDashboardUrl(pluginData);
+   const archiveUrl = pluginData.state.archives.getUrl(baseUrl, archiveId);
+ 
+   pluginData.getPlugin(LogsPlugin).logClean({
+diff --git a/backend/src/types.ts b/backend/src/types.ts
+index 6f24a7fd..94e59a87 100644
+--- a/backend/src/types.ts
++++ b/backend/src/types.ts
+@@ -28,6 +28,7 @@ export const PartialZeppelinGuildConfigSchema = t.partial(ZeppelinGuildConfigSch
+ 
+ export interface ZeppelinGlobalConfig extends BaseConfig<any> {
+   url: string;
++  dashboard_url: string;
+   owners?: string[];
+ }
+ 
+diff --git a/dashboard/src/components/Archive.vue b/dashboard/src/components/Archive.vue
+new file mode 100644
+index 00000000..33db224a
+--- /dev/null
++++ b/dashboard/src/components/Archive.vue
+@@ -0,0 +1,105 @@
++<template>
++  <div v-if="loading">
++    Loading...
++  </div>
++  <div v-else>
++    <div v-if="errors.length" class="bg-gray-800 py-2 px-3 rounded shadow-md mb-4">
++      <div class="font-semibold">Errors:</div>
++      <div v-for="error in errors">{{ error }}</div>
++    </div>
++
++    <div class="archive" v-bind:class="darkTheme ? 'dark' : 'light'">
++      <div class="theme-switcher">
++        <label for="theme-switcher">
++          Theme
++        </label>
++        <input type="checkbox" id="theme-switcher" :checked="darkTheme" v-on:change="themeChangeListener" />
++      </div>
++
++      <div class="wrapper">
++        <h1>{{ archive.heading }}</h1>
++        <main>
++          <div v-for="channel in archive.channels">
++            <h2>
++              <svg width="16" height="16" viewBox="0 0 24 24" class="channelNameIcon-2d0YcP"><path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M5.88657 21C5.57547 21 5.3399 20.7189 5.39427 20.4126L6.00001 17H2.59511C2.28449 17 2.04905 16.7198 2.10259 16.4138L2.27759 15.4138C2.31946 15.1746 2.52722 15 2.77011 15H6.35001L7.41001 9H4.00511C3.69449 9 3.45905 8.71977 3.51259 8.41381L3.68759 7.41381C3.72946 7.17456 3.93722 7 4.18011 7H7.76001L8.39677 3.41262C8.43914 3.17391 8.64664 3 8.88907 3H9.87344C10.1845 3 10.4201 3.28107 10.3657 3.58738L9.76001 7H15.76L16.3968 3.41262C16.4391 3.17391 16.6466 3 16.8891 3H17.8734C18.1845 3 18.4201 3.28107 18.3657 3.58738L17.76 7H21.1649C21.4755 7 21.711 7.28023 21.6574 7.58619L21.4824 8.58619C21.4406 8.82544 21.2328 9 20.9899 9H17.41L16.35 15H19.7549C20.0655 15 20.301 15.2802 20.2474 15.5862L20.0724 16.5862C20.0306 16.8254 19.8228 17 19.5799 17H16L15.3632 20.5874C15.3209 20.8261 15.1134 21 14.8709 21H13.8866C13.5755 21 13.3399 20.7189 13.3943 20.4126L14 17H8.00001L7.36325 20.5874C7.32088 20.8261 7.11337 21 6.87094 21H5.88657ZM9.41045 9L8.35045 15H14.3504L15.4104 9H9.41045Z"></path></svg>
++              {{ channel.name }}
++            </h2>
++
++            <ul class="archive-channel-messages">
++              <li v-for="message in channel.messages">
++                <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAAY1BMVEVYZfJib/OMlfahqPeWn/eBi/XLz/vq6/7////19f5tePTq7P22vPnV2Pyrsvirsvl3gvT09f7Axfp3gfRtePNsePPg4v22vPq2u/qCi/WhqPjf4/zf4v2Xn/essvjLzvuXnvdbidFTAAAETElEQVR4AezBgQAAAACAoP2pF6kCAAAAAAAAAAAAAAAAAAAAAIDZudMtV1UlDuCFRKlWIEJ6uOwbzXn/lzzzYc/GWiT6zya/79WrLeYSc5Vq9IFWa3Sr6JehWt0ZZn5RtFJvmHnodPsrPLx1/B9PKx1ziLOPnIRRO84EXaAP/CWnR3pArTWcybpA5G8NsX20pw+cSbpAngEeOQenY+Cf8KIZ4FuDfSV4Ko/7hS7wNjYH7W3MvNeHtn2jvxn+OXcgaP0x8KJo43vgnwqu85EXDfGVULWON9G1BOmDN/M/AnTgDSWC0xve0KAITeSsykFw4qzOQWB4YwNBOfLmPAHpeXsvr5XOgJkjGA3vIlU6A2bvOHvAnXwiCMrwTl5UpUtg5us7BAB2gcg78nXugaC6QORd+bo7AEAXiLwzX+8SANEFNHPdXcAwV90FDgxA037+zwAc7aZlCKnSNTDrADZBdU6DBwbha5wCAabBkWGkSqfAzFa6C8xeADYB9Y2ByEBsbSMAYAy0zHWPActQLPQuKBh3DiwiDRlwzwFOv9JfTpORh5x5rVfQc8CQiLLJiEMaA1oW6XgVq+grVh4yY56JA68x07fm8hCIhXCUPn823zgkG/HK4Rf6kYv8YBt5BQ03BQyv9CMq8M/JQ7IItw+e6cd8QQjKTqCX3OMTtOdCCNZOoCnqkrYgZEFD2/FF/08qDAE4Dji+TtHPKHknVmBboVB2i9HI9zIGahZUhaVqVxCyQEEVQ7rSBMj3QiPUUTCWJkC+8zrQVjzmELBYG2H5jDYUFqAiQDlMtAwKQgjr+nwoq9O2BSEQJQFVWKeNBSEQ6+BYeG3BFIUAHIfasmsLh7IQgLcjDZd0AWXEIZRDMDYCuuj73g95yJGxEuBLPmr6VBSyzMO9Fpzko3kqeA1r8W4GHOWNKQ/JIl4COL4SZf2lPAQhAY4lYrv860rlIVmHlYAsuBhjFwpCwO4LOkb0TMAzAc8EPBPwTMAGngl4JuCZgMig4jMB27AMykJUhCr4ekwzKI10T9hpwzcz6DNSUbRdORzThW/CJSKagd4LjKurof1suFCYVR54MDckpsBXDLk3pliQgxBTHneBrwiaNtOfeUUKCnMQYlKC32x2r7SlmSUpoOQdi5xtoqx1DNP8WW9kKSCVvAu8QnC2USR4/I2bP5vDmhS80pdOjXULw8dc7HSiL6ljYLTmz/ooKvJTdkqTt9G5s/mHczH6qXlV9I32Ehi0+QVfQbn7HryHhvY033V1Tuu3CRncOIj3rL3EV9pf7+53ced0bY+MIZm7ndEt9uNnkxN8OSWhAvjjZ8ktnIoKaMDHF0yH8S416C4Rpv7bU094pWJ9QFv4BJOBvnkFzjWKMvhu4G78IibMIz2EFM3KFUAwCEI+ID9MDia6kd/+enpFj+YE+af+aA8OZAAAAAAG+Vvf46sAAAAAAAAAAAAAAAAAAAAAAFYCeHSjWah9hFcAAAAASUVORK5CYII=" width="40" height="40" />
++                <h3>
++                  <span class="user-tag">{{ message.userTag }}</span>
++                  <span class="message-date">{{ message.postedAt }}</span>
++                </h3>
++                <div class="message-content">
++                  <span>{{ message.content }}</span>
++                </div>
++              </li>
++            </ul>
++          </div>
++        </main>
++        <footer>
++          <p>
++            Archive created: {{ archive.created_at }}<br />
++            <span v-if="archive.expires_at">Archive expires: {{ archive.expires_at }}</span>
++          </p>
++        </footer>
++      </div>
++    </div>
++  </div>
++</template>
++
++<script lang="ts">
++  import "../style/archives.pcss";
++
++  import { mapState } from "vuex";
++  import { ApiError } from "../api";
++  import { ArchiveState } from "../store/types";
++
++  export default {
++    async mounted() {
++      try {
++        await this.$store.dispatch("archives/loadArchive", this.$route.params.archiveId);
++      } catch (err) {
++        if (err instanceof ApiError) {
++          this.$router.push('/dashboard');
++          return;
++        }
++
++        throw err;
++      }
++
++      if (this.archive === null) {
++        this.$router.push('/dashboard');
++        return;
++      }
++
++      const themeLocalStorageValue = localStorage.getItem('dark-theme');
++      this.darkTheme = themeLocalStorageValue === null ? true : !!Number(themeLocalStorageValue);
++      this.loading = false;
++    },
++    data() {
++      return {
++        darkTheme: true,
++        loading: true,
++        errors: [],
++      };
++    },
++    computed: {
++      ...mapState("archives", {
++        archive(archives: ArchiveState) {
++          return archives.available.get(this.$route.params.archiveId);
++        },
++      }),
++    },
++    methods: {
++      themeChangeListener(event) {
++        const checkbox = event.currentTarget as HTMLInputElement;console.log(checkbox.checked);
++
++        this.darkTheme = checkbox.checked;
++        localStorage.setItem('dark-theme', this.darkTheme ? '1' : '0');
++      }
++    },
++  };
++</script>
+diff --git a/dashboard/src/routes.ts b/dashboard/src/routes.ts
+index e442f615..b9d809d9 100644
+--- a/dashboard/src/routes.ts
++++ b/dashboard/src/routes.ts
+@@ -16,6 +16,12 @@ export const router = new VueRouter({
+       component: () => import("./components/PrivacyPolicy.vue"),
+     },
+ 
++    // Archives
++    {
++      path: "/archives/:archiveId",
++      component: () => import("./components/Archive.vue"),
++    },
++
+     // Docs
+     {
+       path: "/docs",
+diff --git a/dashboard/src/store/archives.ts b/dashboard/src/store/archives.ts
+new file mode 100644
+index 00000000..4460df26
+--- /dev/null
++++ b/dashboard/src/store/archives.ts
+@@ -0,0 +1,60 @@
++import { get } from "../api";
++import { Module } from "vuex";
++import { ArchiveState, RootState } from "./types";
++
++export const ArchiveStore: Module<ArchiveState, RootState> = {
++  namespaced: true,
++
++  state: {
++    available: new Map(),
++  },
++
++  actions: {
++    async loadArchive({ commit, state }, archiveId) {
++      const archive = await get(`archives/${archiveId}.json`);
++      if (archive.error) {
++        return;
++      }
++
++      const messageRegex = /\[#([^\]]+)\] \[(\d+)\] \[([0-9 :-]+)\] (.{1,255}#\d{4}): (.+)/gu;
++      const messages = archive.body.split("\n");
++
++      archive.heading = messages
++        .shift()
++        .replace(/(\(\d+\))/u, "")
++        .replace("Server: ", "");
++      archive.channels = [];
++      messages.shift();
++
++      messages.forEach((message) => {
++        messageRegex.lastIndex = 0;
++
++        const matches = messageRegex.exec(message);
++
++        if (!matches) {
++          return;
++        }
++
++        const [, channel, userId, postedAt, userTag, content] = matches;
++        const messageData = { userId, postedAt, userTag, content };
++
++        if (archive.channels.length < 1 || archive.channels[archive.channels.length - 1].name !== channel) {
++          archive.channels.push({
++            name: channel,
++            messages: [],
++          });
++        }
++
++        archive.channels[archive.channels.length - 1].messages.push(messageData);
++      });
++
++      commit("addArchive", archive);
++    },
++  },
++
++  mutations: {
++    addArchive(state: ArchiveState, archive) {
++      state.available.set(archive.id, archive);
++    },
++  },
++};
+diff --git a/dashboard/src/store/index.ts b/dashboard/src/store/index.ts
+index c4aadd83..d4460e60 100644
+--- a/dashboard/src/store/index.ts
++++ b/dashboard/src/store/index.ts
+@@ -4,12 +4,14 @@ import Vuex, { Store } from "vuex";
+ Vue.use(Vuex);
+ 
+ import { RootState } from "./types";
++import { ArchiveStore } from "./archives";
+ import { AuthStore } from "./auth";
+ import { GuildStore } from "./guilds";
+ import { DocsStore } from "./docs";
+ 
+ export const RootStore = new Vuex.Store<RootState>({
+   modules: {
++    archives: ArchiveStore,
+     auth: AuthStore,
+     guilds: GuildStore,
+     docs: DocsStore,
+diff --git a/dashboard/src/store/types.ts b/dashboard/src/store/types.ts
+index c7e2987b..207e60f4 100644
+--- a/dashboard/src/store/types.ts
++++ b/dashboard/src/store/types.ts
+@@ -45,6 +45,15 @@ export interface StaffState {
+   isStaff: boolean;
+ }
+ 
++export interface ArchiveState {
++  available: Map<
++    string,
++    {
++      id: string;
++    }
++  >;
++}
++
+ export interface ThinDocsPlugin {
+   name: string;
+   info: {
+@@ -76,6 +85,7 @@ export interface DocsState {
+ 
+ export type RootState = {
+   auth: AuthState;
++  archives: ArchiveState;
+   guilds: GuildState;
+   docs: DocsState;
+   staff: StaffState;
+diff --git a/dashboard/src/style/archives.pcss b/dashboard/src/style/archives.pcss
+new file mode 100644
+index 00000000..3ac6a3ef
+--- /dev/null
++++ b/dashboard/src/style/archives.pcss
+@@ -0,0 +1,250 @@
++:root {
++  --dark-global-background: #2F3136;
++  --dark-theme-switch-bar: #595E68;
++  --dark-theme-switch-thumb: #767E8C;
++  --dark-messages-background: #36393F;
++  --dark-messages-hover-background: #32353B;
++  --dark-global-text-color: #DCDDDE;
++  --dark-accent-text-color: white;
++  --dark-aside-text-color: #A3A6AA;
++
++  --light-global-background: #F2F3F5;
++  --light-theme-switch-bar: #8E96A6;
++  --light-theme-switch-thumb: #afbbd0;
++  --light-messages-background: white;
++  --light-messages-hover-background: #FAFAFA;
++  --light-global-text-color: #2E3338;
++  --light-accent-text-color: #060607;
++  --light-aside-text-color: #5E6772;
++}
++
++.archive {
++  padding: 16px;
++
++  width: 100%;
++  min-height: 100vh;
++
++  display: flex;
++  flex-direction: column;
++  justify-content: flex-start;
++  align-items: center;
++
++  transition: background-color ease .1s, color ease .1s;
++
++  & .theme-switcher {
++    position: absolute;
++    top: 30px;
++    right: 80px;
++
++    & #theme-switcher {
++      display: inline-block;
++      position: relative;
++      appearance: none;
++
++      &::before {
++        content: '';
++        display: inline-block;
++        position: absolute;
++        width: 25px;
++        height: 13px;
++        top: -13px;
++        left: 20px;
++        border-radius: 13px;
++
++        transition: background-color ease .1s;
++      }
++
++      &::after {
++        content: '';
++        display: inline-block;
++        position: absolute;
++        width: 25px;
++        height: 25px;
++        top: -19px;
++        left: 5px;
++        border-radius: 50%;
++        background-image: url('https://i.ibb.co/7JfqXxB/sunny.png');
++        background-size: 70%;
++        background-repeat: no-repeat;
++        background-position: center;
++
++        transition: left ease-in .1s, background-color ease .1s;
++      }
++
++      &:checked::after {
++        left: 35px;
++        background-image: url('https://i.ibb.co/FxzBYR9/night.png');
++      }
++    }
++  }
++
++  & .wrapper {
++    flex: 0 0 auto;
++    width: 100%;
++    max-width: 800px;
++  }
++
++  & h1 {
++    font-size: 60px;
++    font-weight: 600;
++    margin-bottom: 15px;
++    text-align: center;
++  }
++
++  & h2 {
++    font-size: 16px;
++    font-weight: 600;
++    margin-bottom: 8px;
++    margin-top: 24px;
++
++    transition: color ease .1s;
++  }
++
++  & svg {
++    display: inline;
++    vertical-align: sub;
++  }
++
++  & .archive-channel-messages {
++    border-radius: 8px;
++    margin-bottom: 8px;
++    padding: 16px 0;
++
++    transition: background-color ease .1s;
++
++    & li {
++      clear: both;
++      padding: 5px 16px;
++
++      &:not(:first-of-type) {
++        margin-top: 17px;
++      }
++
++      & img {
++        border-radius: 50%;
++        float: left;
++        margin: 0 15px 5px 0;
++      }
++
++      & h3 {
++        margin-top: -5px;
++
++        & .user-tag {
++          font-weight: 600;
++          font-size: 16px;
++
++          transition: color ease .1s;
++        }
++
++        & .message-date {
++          font-size: 12px;
++          margin-left: 4px;
++
++          transition: color ease .1s;
++        }
++      }
++
++      & .message-content {
++        font-size: 16px;
++        margin-top: -3px;
++      }
++    }
++  }
++
++  & p {
++    margin-bottom: 16px;
++  }
++
++  & ul {
++    list-style: none;
++    margin-left: 0;
++    margin-bottom: 16px;
++  }
++
++  & footer {
++    font-size: 12px;
++    margin-top: 15px;
++  }
++
++  &.dark {
++    background-color: var(--dark-global-background);
++    color: var(--dark-global-text-color);
++
++    & .theme-switcher {
++      & #theme-switcher {
++        &::before {
++          background-color: var(--dark-theme-switch-bar);
++        }
++
++        &::after {
++          background-color: var(--dark-theme-switch-thumb);
++        }
++      }
++    }
++
++    & h2 {
++      color: var(--dark-accent-text-color);
++    }
++
++    & .archive-channel-messages {
++      background-color: var(--dark-messages-background);
++
++      & li {
++        &:hover {
++          background: var(--dark-messages-hover-background);
++        }
++
++        & h3 {
++          & .user-tag {
++            color: var(--dark-accent-text-color);
++          }
++
++          & .message-date {
++            color: var(--dark-aside-text-color);
++          }
++        }
++      }
++    }
++  }
++
++  &.light {
++    background-color: var(--light-global-background);
++    color: var(--light-global-text-color);
++
++    & .theme-switcher {
++      & #theme-switcher {
++        &::before {
++          background-color: var(--light-theme-switch-bar);
++        }
++
++        &::after {
++          background-color: var(--light-theme-switch-thumb);
++        }
++      }
++    }
++
++    & h2 {
++      color: var(--light-accent-text-color);
++    }
++
++    & .archive-channel-messages {
++      background-color: var(--light-messages-background);
++
++      & li {
++        &:hover {
++          background: var(--light-messages-hover-background);
++        }
++
++        & h3 {
++          & .user-tag {
++            color: var(--light-accent-text-color);
++          }
++
++          & .message-date {
++            color: var(--light-aside-text-color);
++          }
++        }
++      }
++    }
++  }
++}
+-- 
+2.25.1
+
+
+From 546ae871aa9b47fb6c6c3aa62c997f63219faf98 Mon Sep 17 00:00:00 2001
+From: Lily Wonhalf <lilywonhalf@gmail.com>
+Date: Sun, 31 Jul 2022 19:28:04 +0200
+Subject: [PATCH 6/7] Fixed overflow
+
+---
+ dashboard/src/style/archives.pcss | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/dashboard/src/style/archives.pcss b/dashboard/src/style/archives.pcss
+index 3ac6a3ef..6a463730 100644
+--- a/dashboard/src/style/archives.pcss
++++ b/dashboard/src/style/archives.pcss
+@@ -147,6 +147,7 @@
+       & .message-content {
+         font-size: 16px;
+         margin-top: -3px;
++        word-break: break-all;
+       }
+     }
+   }
+-- 
+2.25.1
+
+
+From 10cbaa5fadb467db5acc647c780c4a4aef291a93 Mon Sep 17 00:00:00 2001
+From: Lily Wonhalf <lilywonhalf@gmail.com>
+Date: Sun, 31 Jul 2022 23:43:13 +0200
+Subject: [PATCH 7/7] Fixed archive link in cases
+
+---
+ backend/src/plugins/Cases/functions/createCase.ts | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/backend/src/plugins/Cases/functions/createCase.ts b/backend/src/plugins/Cases/functions/createCase.ts
+index a020c09d..72d68c5b 100644
+--- a/backend/src/plugins/Cases/functions/createCase.ts
++++ b/backend/src/plugins/Cases/functions/createCase.ts
+@@ -5,7 +5,7 @@ import { resolveUser } from "../../../utils";
+ import { CaseArgs, CasesPluginType } from "../types";
+ import { createCaseNote } from "./createCaseNote";
+ import { postCaseToCaseLogChannel } from "./postToCaseLogChannel";
+-import { getBaseUrl } from "../../../pluginUtils";
++import { getDashboardUrl } from "../../../pluginUtils";
+ import { CaseTypes } from "../../../data/CaseTypes";
+ 
+ export async function createCase(pluginData: GuildPluginData<CasesPluginType>, args: CaseArgs) {
+@@ -55,7 +55,8 @@ export async function createCase(pluginData: GuildPluginData<CasesPluginType>, a
+     );
+ 
+     const archiveId = await pluginData.state.archives.createFromSavedMessages(messagesToArchive, pluginData.guild);
+-    const baseUrl = getBaseUrl(pluginData);
++    const baseUrl = getDashboardUrl(pluginData);
++
+     await createCaseNote(pluginData, {
+       caseId: createdCase.id,
+       modId: mod.id,
 -- 
 2.25.1
 
