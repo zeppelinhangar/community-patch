@@ -1,7 +1,7 @@
 From 9214b658828b13801df811d86f221bc6b445304b Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Thu, 23 Sep 2021 16:21:11 +0000
-Subject: [PATCH 01/20] initial
+Subject: [PATCH 01/21] initial
 
 ---
  backend/src/data/GuildCounters.ts             | 12 +++++
@@ -187,7 +187,7 @@ index 0dcb7bde..86919614 100644
 From 7c4ed443b9caa2638706edb102baea31a2577ffc Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Thu, 23 Sep 2021 17:00:57 +0000
-Subject: [PATCH 02/20] fix
+Subject: [PATCH 02/21] fix
 
 ---
  backend/src/data/GuildCounters.ts              | 4 ++--
@@ -237,7 +237,7 @@ index e35c914d..3e4a653c 100644
 From cc285e82ff8e7aa992476ea211b5c74f4f5c0116 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Thu, 23 Sep 2021 19:00:37 +0000
-Subject: [PATCH 03/20] more fixes
+Subject: [PATCH 03/21] more fixes
 
 ---
  backend/src/data/GuildCounters.ts             | 15 ++++-------
@@ -430,7 +430,7 @@ index d57e1fca..41540513 100644
 From 73864f8f70c03249a819a7121cf723d234ef63b0 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Thu, 23 Sep 2021 19:39:39 +0000
-Subject: [PATCH 04/20] Merge branch 'tags-counters-getters'
+Subject: [PATCH 04/21] Merge branch 'tags-counters-getters'
 
 ---
  backend/src/templateFormatter.ts | 4 ++++
@@ -458,7 +458,7 @@ index 2b0dbaf6..d1646dd8 100644
 From 8f288a4232463a51069b7aead205fa81e68fe599 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Thu, 23 Sep 2021 20:25:37 +0000
-Subject: [PATCH 05/20] add math.pow
+Subject: [PATCH 05/21] add math.pow
 
 ---
  backend/src/templateFormatter.ts | 4 ++++
@@ -486,7 +486,7 @@ index d1646dd8..fb3d2e01 100644
 From a22bba4f5d6d6a50e437612425f5da88c7ae1276 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Thu, 23 Sep 2021 22:10:22 +0000
-Subject: [PATCH 06/20] parseFloat exp
+Subject: [PATCH 06/21] parseFloat exp
 
 ---
  backend/src/templateFormatter.ts | 6 +++---
@@ -516,7 +516,7 @@ index fb3d2e01..6caa7cef 100644
 From 1917b5013c3fef5cb170ee5ea3ad80e6ba27c735 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Thu, 23 Sep 2021 23:04:09 +0000
-Subject: [PATCH 07/20] ceil/floor
+Subject: [PATCH 07/21] ceil/floor
 
 ---
  backend/src/templateFormatter.ts | 8 ++++++++
@@ -548,7 +548,7 @@ index 6caa7cef..da70b4c3 100644
 From c98e028f935f7bcf4ab62080bc03df90199a4143 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Fri, 24 Sep 2021 18:11:09 +0000
-Subject: [PATCH 08/20] check counters & add get_user
+Subject: [PATCH 08/21] check counters & add get_user
 
 ---
  .../src/plugins/Tags/util/renderTagBody.ts    | 27 +++++++++++++++----
@@ -625,7 +625,7 @@ index 58523af8..00f8fb37 100644
 From 24aa1581a66b5c8bc7590b290f7ed1bfde4da8e8 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Fri, 24 Sep 2021 19:17:52 +0000
-Subject: [PATCH 09/20] return string
+Subject: [PATCH 09/21] return string
 
 ---
  backend/src/plugins/Tags/util/renderTagBody.ts | 2 +-
@@ -651,7 +651,7 @@ index 00f8fb37..6e8c6089 100644
 From e4a3352fcf5d009a2814440e9430a2c991e9bb7e Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Sat, 25 Sep 2021 20:36:21 +0000
-Subject: [PATCH 10/20] first attempt at RANK
+Subject: [PATCH 10/21] first attempt at RANK
 
 ---
  backend/src/data/GuildCounters.ts             | 17 +++++++++++++++
@@ -770,7 +770,7 @@ index 6e8c6089..afe6a088 100644
 From 9f42a02de2dd78488a5812bf72cf39a318e0342c Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Sat, 25 Sep 2021 21:24:46 +0000
-Subject: [PATCH 11/20] aaaaaa
+Subject: [PATCH 11/21] aaaaaa
 
 ---
  backend/src/data/GuildCounters.ts             | 18 +++++++-------
@@ -879,7 +879,7 @@ index 00000000..b5c5be4e
 From 4a9311f35721cc2d66ddacf949f3b1249f1bd5d3 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Mon, 11 Oct 2021 13:10:26 +0000
-Subject: [PATCH 12/20] test
+Subject: [PATCH 12/21] test
 
 ---
  backend/src/data/GuildCounters.ts             | 19 ++++++++++---------
@@ -1001,7 +1001,7 @@ index 41540513..1bb88160 100644
 From 6d8fb18308e157b9526ef9f06030884a92e2e9cd Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Mon, 11 Oct 2021 13:10:42 +0000
-Subject: [PATCH 13/20] debug
+Subject: [PATCH 13/21] debug
 
 ---
  backend/src/data/GuildCounters.ts | 1 +
@@ -1026,7 +1026,7 @@ index a8ca1f12..481bb7d8 100644
 From 21a6a22cf29c578470e205f552ec949ed29a8746 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Mon, 11 Oct 2021 13:33:57 +0000
-Subject: [PATCH 14/20] conditional check
+Subject: [PATCH 14/21] conditional check
 
 ---
  backend/src/plugins/Tags/util/renderTagBody.ts | 9 ++++-----
@@ -1063,7 +1063,7 @@ index 76f1f69c..0159faa6 100644
 From 7c0b10a1bf69555091b2a1a36c647834a07a8cc4 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Mon, 11 Oct 2021 13:43:53 +0000
-Subject: [PATCH 15/20] transform int
+Subject: [PATCH 15/21] transform int
 
 ---
  backend/src/data/GuildCounters.ts                         | 1 -
@@ -1135,7 +1135,7 @@ index 1bb88160..a1ce3b17 100644
 From b2a223a5dd3ef38696f8f75ac789d39f8bba866c Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Mon, 11 Oct 2021 13:53:06 +0000
-Subject: [PATCH 16/20] feex
+Subject: [PATCH 16/21] feex
 
 ---
  backend/src/plugins/Counters/functions/getCounterValue.ts | 7 ++++++-
@@ -1165,7 +1165,7 @@ index 17d2e52f..e181cbd4 100644
 From 55d07a8d3c37c7ec699ac131ba3dc1887016b277 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Mon, 11 Oct 2021 14:03:50 +0000
-Subject: [PATCH 17/20] escapeString no arrow fn
+Subject: [PATCH 17/21] escapeString no arrow fn
 
 ---
  backend/src/utils/escapeString.ts | 45 ++++++++++++++++---------------
@@ -1230,7 +1230,7 @@ index b5c5be4e..7dedb595 100644
 From ad96e7d2eab36e0ef5be9ded08ed3d3791a2c9ef Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Mon, 11 Oct 2021 14:13:37 +0000
-Subject: [PATCH 18/20] remove outputField
+Subject: [PATCH 18/21] remove outputField
 
 ---
  backend/src/data/GuildCounters.ts                      | 10 ++--------
@@ -1309,7 +1309,7 @@ index 0159faa6..b127e8c1 100644
 From 8cb6b94bd364ed2bf0f3a4b575954a414bee88b3 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Mon, 6 Mar 2023 22:35:30 +0000
-Subject: [PATCH 19/20] cases template fn modify
+Subject: [PATCH 19/21] cases template fn modify
 
 Signed-off-by: GitHub <noreply@github.com>
 ---
@@ -1335,7 +1335,7 @@ index da70b4c3..073b0279 100644
 From 506e7ce6dcf29b6a4cb172e149dc59f442674633 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Wed, 8 Mar 2023 17:21:56 +0000
-Subject: [PATCH 20/20] changes to get counter rank
+Subject: [PATCH 20/21] changes to get counter rank
 
 Signed-off-by: GitHub <noreply@github.com>
 ---
@@ -1404,6 +1404,33 @@ index b127e8c1..ed2e6aa1 100644
            : await countersPlugin.getAllCounterValues(counter)
        )?.map((cd) => counterValueToTemplateSafeCounterValue(cd));
 
+--
+2.25.1
+
+
+From bc127386ca57fca53df4840f95a12e4e514db2e1 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Wed, 8 Mar 2023 18:15:13 +0000
+Subject: [PATCH 21/21] :clown: fix. fucking mysql
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ backend/src/data/GuildCounters.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/backend/src/data/GuildCounters.ts b/backend/src/data/GuildCounters.ts
+index b2aa50ae..e41238e8 100644
+--- a/backend/src/data/GuildCounters.ts
++++ b/backend/src/data/GuildCounters.ts
+@@ -513,7 +513,7 @@ export class GuildCounters extends BaseGuildRepository {
+     const queryString = `WITH t AS (
+       SELECT
+         *,
+-        DENSE_RANK() OVER (ORDER BY value DESC) AS rank
++        DENSE_RANK() OVER (ORDER BY value DESC) AS 'rank'
+       FROM counter_values
+       WHERE counter_id=${counterId}
+     )
 --
 2.25.1
 
