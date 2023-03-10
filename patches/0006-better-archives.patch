@@ -1,7 +1,7 @@
 From 1606d7cc8aa776f1fcfdaa6e066fb2b935316de5 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Mon, 20 Feb 2023 21:18:18 +0000
-Subject: [PATCH 1/7] initial
+Subject: [PATCH 01/10] initial
 
 Signed-off-by: GitHub <noreply@github.com>
 ---
@@ -55,7 +55,7 @@ index 00000000..f4f8cfe7
 From ee49f4997f5024fe30e7622f3bc7b91e4a13492e Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Sun, 19 Feb 2023 11:14:43 +0000
-Subject: [PATCH 2/7] higher clean limits
+Subject: [PATCH 02/10] higher clean limits
 
 Signed-off-by: GitHub <noreply@github.com>
 ---
@@ -84,7 +84,7 @@ index 6abbb481..6bbd8519 100644
 From de99950480c3035de96833271b189848b273cdd1 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Sat, 18 Feb 2023 23:19:07 +0000
-Subject: [PATCH 3/7] better archives stuff
+Subject: [PATCH 03/10] better archives stuff
 
 Signed-off-by: GitHub <noreply@github.com>
 ---
@@ -395,7 +395,7 @@ index 15f6e925..c41959de 100644
 From e58f796595b7ce76c346ab7d8bed8ef4af6c9397 Mon Sep 17 00:00:00 2001
 From: metal <metal@i0.tf>
 Date: Sun, 19 Feb 2023 00:43:20 +0000
-Subject: [PATCH 4/7] add more case types to not auto-archive
+Subject: [PATCH 04/10] add more case types to not auto-archive
 
 Signed-off-by: GitHub <noreply@github.com>
 ---
@@ -428,7 +428,7 @@ index c8cea257..a020c09d 100644
 From 3f4dd8ba4e6a8a4c0041f0ba38d4652c937d3597 Mon Sep 17 00:00:00 2001
 From: Lily Wonhalf <lilywonhalf@gmail.com>
 Date: Mon, 25 Jul 2022 21:13:11 +0200
-Subject: [PATCH 5/7] Made archives prettier
+Subject: [PATCH 05/10] Made archives prettier
 
 ---
  backend/src/api/archives.ts                   |   9 +
@@ -1043,7 +1043,7 @@ index 00000000..3ac6a3ef
 From 546ae871aa9b47fb6c6c3aa62c997f63219faf98 Mon Sep 17 00:00:00 2001
 From: Lily Wonhalf <lilywonhalf@gmail.com>
 Date: Sun, 31 Jul 2022 19:28:04 +0200
-Subject: [PATCH 6/7] Fixed overflow
+Subject: [PATCH 06/10] Fixed overflow
 
 ---
  dashboard/src/style/archives.pcss | 1 +
@@ -1068,7 +1068,7 @@ index 3ac6a3ef..6a463730 100644
 From 10cbaa5fadb467db5acc647c780c4a4aef291a93 Mon Sep 17 00:00:00 2001
 From: Lily Wonhalf <lilywonhalf@gmail.com>
 Date: Sun, 31 Jul 2022 23:43:13 +0200
-Subject: [PATCH 7/7] Fixed archive link in cases
+Subject: [PATCH 07/10] Fixed archive link in cases
 
 ---
  backend/src/plugins/Cases/functions/createCase.ts | 5 +++--
@@ -1097,6 +1097,94 @@ index a020c09d..72d68c5b 100644
      await createCaseNote(pluginData, {
        caseId: createdCase.id,
        modId: mod.id,
+-- 
+2.25.1
+
+
+From ba6ea0bfb7fe95b074263cf5a155ed67b44d2b44 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Fri, 10 Mar 2023 18:50:54 +0000
+Subject: [PATCH 08/10] quadruplicate clean limit due to unhinged server
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ backend/src/plugins/Utility/commands/CleanCmd.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/backend/src/plugins/Utility/commands/CleanCmd.ts b/backend/src/plugins/Utility/commands/CleanCmd.ts
+index 0bb77069..126127cb 100644
+--- a/backend/src/plugins/Utility/commands/CleanCmd.ts
++++ b/backend/src/plugins/Utility/commands/CleanCmd.ts
+@@ -11,7 +11,7 @@ import { utilityCmd, UtilityPluginType } from "../types";
+ import { LogsPlugin } from "../../Logs/LogsPlugin";
+ import { humanizeDurationShort } from "../../../humanizeDurationShort";
+ 
+-const MAX_CLEAN_COUNT = 1000;
++const MAX_CLEAN_COUNT = 4000;
+ const MAX_CLEAN_TIME = 14 * DAYS;
+ const MAX_CLEAN_API_REQUESTS = 20;
+ const CLEAN_COMMAND_DELETE_DELAY = 10 * SECONDS;
+-- 
+2.25.1
+
+
+From f897654fca110a010d0e73f0f34ef0feb10760bb Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Fri, 10 Mar 2023 19:44:57 +0000
+Subject: [PATCH 09/10] clean command batch properly
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ backend/src/plugins/Utility/commands/CleanCmd.ts | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/backend/src/plugins/Utility/commands/CleanCmd.ts b/backend/src/plugins/Utility/commands/CleanCmd.ts
+index 126127cb..9e09427b 100644
+--- a/backend/src/plugins/Utility/commands/CleanCmd.ts
++++ b/backend/src/plugins/Utility/commands/CleanCmd.ts
+@@ -34,8 +34,11 @@ export async function cleanMessages(
+   pluginData.state.logs.ignoreLog(LogType.MESSAGE_DELETE_BULK, idsToDelete[0]);
+ 
+   // Actually delete the messages
+-  channel.bulkDelete(idsToDelete);
+-  await pluginData.state.savedMessages.markBulkAsDeleted(idsToDelete);
++  for (let i = 0; i < idsToDelete.length; i += idsToDelete.length) {
++    const chunk = idsToDelete.slice(i, i + idsToDelete.length);
++    await channel.bulkDelete(chunk);
++    await pluginData.state.savedMessages.markBulkAsDeleted(chunk);
++  }
+ 
+   // Create an archive
+   const archiveId = await pluginData.state.archives.createFromSavedMessages(savedMessages, pluginData.guild);
+-- 
+2.25.1
+
+
+From cc6656626c3984c398cde143138257be9b212f05 Mon Sep 17 00:00:00 2001
+From: metal <metal@i0.tf>
+Date: Fri, 10 Mar 2023 19:47:05 +0000
+Subject: [PATCH 10/10] oops
+
+Signed-off-by: GitHub <noreply@github.com>
+---
+ backend/src/plugins/Utility/commands/CleanCmd.ts | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/backend/src/plugins/Utility/commands/CleanCmd.ts b/backend/src/plugins/Utility/commands/CleanCmd.ts
+index 9e09427b..36424984 100644
+--- a/backend/src/plugins/Utility/commands/CleanCmd.ts
++++ b/backend/src/plugins/Utility/commands/CleanCmd.ts
+@@ -34,8 +34,8 @@ export async function cleanMessages(
+   pluginData.state.logs.ignoreLog(LogType.MESSAGE_DELETE_BULK, idsToDelete[0]);
+ 
+   // Actually delete the messages
+-  for (let i = 0; i < idsToDelete.length; i += idsToDelete.length) {
+-    const chunk = idsToDelete.slice(i, i + idsToDelete.length);
++  for (let i = 0; i < idsToDelete.length; i += 100) {
++    const chunk = idsToDelete.slice(i, i + 100);
+     await channel.bulkDelete(chunk);
+     await pluginData.state.savedMessages.markBulkAsDeleted(chunk);
+   }
 -- 
 2.25.1
 
