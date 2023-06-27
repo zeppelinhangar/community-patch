@@ -691,7 +691,7 @@ index 00000000..4460df26
 +        return;
 +      }
 +
-+      const messageRegex = /\[#([^\]]+)\] \[(\d+)\] \[([0-9 :-]+)\] (.{1,255}#\d{4}): (.+)/gu;
++      const messageRegex = /\[#([^\]]+)\] \[(\d+)\] \[([0-9 :-]+)\] (.{1,255}#\d+): (.+)/gu;
 +      const messages = archive.body.split("\n");
 +
 +      archive.heading = messages
